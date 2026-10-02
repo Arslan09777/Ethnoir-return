@@ -1,0 +1,264 @@
+// Prisma Schema for PostgreSQL (Production)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Store {
+  id              String   @id @default(uuid())
+  shopDomain      String   @unique
+  shopName        String?
+  accessToken     String?
+  apiVersion      String   @default("2026-07")
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  settings        Setting?
+  orders          Order[]
+  returnRequests  ReturnRequest[]
+}
+
+model Customer {
+  id              String   @id @default(uuid())
+  shopifyId       String?  @unique
+  email           String?
+  phone           String?
+  firstName       String?
+  lastName        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  orders          Order[]
+  returnRequests  ReturnRequest[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+model Order {
+  id                  String   @id @default(uuid())
+  shopifyId           String   @unique
+  orderNumber         String   @unique
+  storeId             String
+  store               Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId          String?
+  customer            Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerEmail       String?
+  customerPhone       String?
+  fulfillmentStatus   String?
+  deliveryDate        DateTime?
+  totalPrice          Float    @default(0)
+  currency            String   @default("INR")
+  shippingAddressJson String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  items               OrderItem[]
+  returnRequests      ReturnRequest[]
+
+  @@index([orderNumber])
+  @@index([customerEmail])
+  @@index([customerPhone])
+}
+
+model OrderItem {
+  id                String   @id @default(uuid())
+  orderId           String
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shopifyLineItemId String
+  shopifyProductId  String?
+  shopifyVariantId  String?
+  title             String
+  variantTitle      String?
+  sku               String?
+  quantity          Int      @default(1)
+  price             Float    @default(0)
+  imageUrl          String?
+  isReturnable      Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  returnItems       ReturnItem[]
+
+  @@index([orderId])
+  @@index([shopifyLineItemId])
+}
+
+model ReturnRequest {
+  id              String   @id @default(uuid())
+  requestNumber   String   @unique
+  storeId         String
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId         String
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  requestType     String
+  status          String   @default("SUBMITTED")
+  reason          String
+  customerNotes   String?
+  rejectionReason String?
+  internalNotes   String?
+  refundMethod    String?
+  refundAmount    Float?   @default(0)
+  refundStatus    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  returnItems      ReturnItem[]
+  replacementItems ReplacementItem[]
+  uploadedFiles    UploadedFile[]
+  shipments        Shipment[]
+  refunds          Refund[]
+  statusEvents     StatusEvent[]
+
+  @@index([requestNumber])
+  @@index([status])
+  @@index([orderId])
+}
+
+model ReturnItem {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  orderItemId     String
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity        Int           @default(1)
+  reason          String?
+  comments        String?
+  refundAmount    Float?        @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([returnRequestId])
+}
+
+model ReplacementItem {
+  id                String        @id @default(uuid())
+  returnRequestId   String
+  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  targetProductId   String
+  targetVariantId   String
+  title             String
+  variantTitle      String?
+  quantity          Int           @default(1)
+  inStock           Boolean       @default(true)
+  inventoryCheckedAt DateTime?
+  shopifyOrderId    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([returnRequestId])
+}
+
+model UploadedFile {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  filename        String
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+  filePath        String
+  createdAt       DateTime      @default(now())
+
+  @@index([returnRequestId])
+}
+
+model Shipment {
+  id                String        @id @default(uuid())
+  returnRequestId   String
+  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String        @default("SHIPROCKET")
+  shiprocketShipmentId String?
+  shiprocketOrderId String?
+  awbNumber         String?       @unique
+  courierName       String?
+  trackingUrl       String?
+  status            String        @default("INITIATED")
+  failureReason     String?
+  scheduledPickupDate DateTime?
+  pickupAddressJson String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([returnRequestId])
+  @@index([awbNumber])
+}
+
+model Refund {
+  id                String        @id @default(uuid())
+  returnRequestId   String
+  returnRequest     ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  amount            Float
+  currency          String        @default("INR")
+  method            String
+  status            String        @default("PENDING")
+  shopifyRefundId   String?       @unique
+  transactionRef    String?
+  notes             String?
+  processedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([returnRequestId])
+}
+
+model StatusEvent {
+  id              String        @id @default(uuid())
+  returnRequestId String
+  returnRequest   ReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade)
+  status          String
+  actorType       String        @default("SYSTEM")
+  actorName       String?
+  message         String
+  metadataJson    String?
+  createdAt       DateTime      @default(now())
+
+  @@index([returnRequestId])
+}
+
+model AdminUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("ADMIN")
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Setting {
+  id                   String   @id @default(uuid())
+  storeId              String   @unique
+  store                Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  returnWindowDays     Int      @default(7)
+  autoApproveReturns   Boolean  @default(false)
+  requirePhotoUpload   Boolean  @default(true)
+  defaultRefundMethod  String   @default("ORIGINAL_PAYMENT")
+  allowedReasonsJson   String?
+  returnPolicyContent  String?
+  shiprocketPickupName String?
+  notificationEmail    String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  source       String
+  topic        String
+  eventId      String?  @unique
+  payloadJson  String
+  processed    Boolean  @default(false)
+  error        String?
+  createdAt    DateTime @default(now())
+  processedAt  DateTime?
+
+  @@index([source, topic])
+  @@index([eventId])
+}
