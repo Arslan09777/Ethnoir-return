@@ -24,12 +24,24 @@ const ReturnSubmitItemSchema = z.object({
   replacementVariantTitle: z.string().optional()
 });
 
+const PickupAddressSchema = z.object({
+  name: z.string().min(2, 'Full name is required'),
+  address1: z.string().min(3, 'Address line 1 is required'),
+  address2: z.string().optional(),
+  city: z.string().min(2, 'City is required'),
+  state: z.string().min(2, 'State is required'),
+  pincode: z.string().regex(/^[1-9][0-9]{5}$/, 'Please enter a valid 6-digit Indian PIN code'),
+  phone: z.string().regex(/^(?:\+91|91)?[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number'),
+  email: z.string().email().optional(),
+});
+
 const ReturnSubmitSchema = z.object({
   orderId: z.string(),
   requestType: z.enum(['RETURN_REFUND', 'REPLACEMENT']),
   reason: z.enum(['DAMAGED', 'WRONG_PRODUCT', 'SIZE_FIT', 'MISSING_ITEM', 'QUALITY', 'OTHER']),
   customerNotes: z.string().max(1000).optional(),
   refundMethod: z.enum(['ORIGINAL_PAYMENT', 'STORE_CREDIT', 'MANUAL_BANK_UPI']).optional(),
+  pickupAddress: PickupAddressSchema.optional(),
   items: z.array(ReturnSubmitItemSchema).min(1, 'At least one item must be selected'),
   uploadedFiles: z.array(z.object({
     filename: z.string(),
@@ -43,6 +55,7 @@ const ReturnSubmitSchema = z.object({
 /**
  * 1. Customer Order Lookup
  * Validates order number + contact match and evaluates return eligibility
+ * Does not leak whether order exists until contact is verified
  */
 router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Response) => {
   try {
@@ -53,13 +66,13 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
 
     const { orderNumber, emailOrPhone } = parsed.data;
 
-    // 1. Fetch from Shopify (or demo mode fallback)
+    // 1. Fetch from Shopify
     const shopifyOrder = await shopifyService.findOrderByNumber(orderNumber, emailOrPhone);
 
     if (!shopifyOrder) {
       return res.status(404).json({
         error: 'ORDER_NOT_FOUND',
-        message: `No order found matching '${orderNumber}' with contact '${emailOrPhone}'. Please double-check your order confirmation email.`
+        message: 'No matching order found with the provided details. Please verify your order number and contact information.'
       });
     }
 
@@ -275,7 +288,7 @@ router.post('/returns/submit', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'VALIDATION_FAILED', message: parsed.error.issues[0].message });
     }
 
-    const { orderId, requestType, reason, customerNotes, refundMethod, items, uploadedFiles } = parsed.data;
+    const { orderId, requestType, reason, customerNotes, refundMethod, pickupAddress, items, uploadedFiles } = parsed.data;
 
     // Fetch order with items
     const order = await prisma.order.findUnique({
@@ -378,6 +391,11 @@ router.post('/returns/submit', async (req: Request, res: Response) => {
     const autoApprove = order.store.settings?.autoApproveReturns ?? false;
     const initialStatus = autoApprove ? 'APPROVED' : 'SUBMITTED';
 
+    // Resolved pickup address JSON
+    const finalPickupAddressJson = pickupAddress
+      ? JSON.stringify(pickupAddress)
+      : (order.shippingAddressJson || null);
+
     // Create the Return Request transactionally
     const newRequest = await prisma.$transaction(async (tx) => {
       const created = await tx.returnRequest.create({
@@ -392,6 +410,7 @@ router.post('/returns/submit', async (req: Request, res: Response) => {
           customerNotes,
           refundMethod: requestType === 'RETURN_REFUND' ? (refundMethod || 'ORIGINAL_PAYMENT') : null,
           refundAmount: requestType === 'RETURN_REFUND' ? totalRefundAmount : 0,
+          pickupAddressJson: finalPickupAddressJson,
           returnItems: {
             create: returnItemCreates
           },
@@ -459,11 +478,19 @@ router.post('/returns/submit', async (req: Request, res: Response) => {
 });
 
 /**
- * 3. Track Return Request Status by Request Number
+ * 3. Track Return Request Status by Request Number + Customer Verification
  */
-router.get('/returns/track/:requestNumber', async (req: Request, res: Response) => {
+router.all('/returns/track/:requestNumber', async (req: Request, res: Response) => {
   try {
     const { requestNumber } = req.params;
+    const contact = ((req.query.contact as string) || req.body?.contact || '').trim().toLowerCase();
+
+    if (!contact) {
+      return res.status(400).json({
+        error: 'VERIFICATION_REQUIRED',
+        message: 'Please provide the email address or phone number associated with this order to view tracking details.'
+      });
+    }
 
     const returnRequest = await prisma.returnRequest.findUnique({
       where: { requestNumber: requestNumber.toUpperCase() },
@@ -481,8 +508,30 @@ router.get('/returns/track/:requestNumber', async (req: Request, res: Response) 
     });
 
     if (!returnRequest) {
-      return res.status(404).json({ error: 'NOT_FOUND', message: `Request '${requestNumber}' not found.` });
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'No request found matching the provided reference number and contact verification.'
+      });
     }
+
+    // Customer Identity Verification
+    const orderEmail = (returnRequest.order.customerEmail || '').toLowerCase();
+    const orderPhoneClean = (returnRequest.order.customerPhone || '').replace(/[^0-9]/g, '');
+    const contactClean = contact.replace(/[^0-9]/g, '');
+
+    const emailMatch = orderEmail && orderEmail === contact;
+    const phoneMatch = orderPhoneClean && contactClean && (orderPhoneClean.slice(-10) === contactClean.slice(-10));
+
+    if (!emailMatch && !phoneMatch) {
+      return res.status(404).json({
+        error: 'NOT_FOUND',
+        message: 'No request found matching the provided reference number and contact verification.'
+      });
+    }
+
+    const pickupAddress = returnRequest.pickupAddressJson
+      ? JSON.parse(returnRequest.pickupAddressJson)
+      : (returnRequest.order.shippingAddressJson ? JSON.parse(returnRequest.order.shippingAddressJson) : null);
 
     return res.json({
       success: true,
@@ -496,6 +545,7 @@ router.get('/returns/track/:requestNumber', async (req: Request, res: Response) 
         rejectionReason: returnRequest.rejectionReason,
         refundAmount: returnRequest.refundAmount,
         refundMethod: returnRequest.refundMethod,
+        pickupAddress,
         createdAt: returnRequest.createdAt,
         updatedAt: returnRequest.updatedAt,
         order: {

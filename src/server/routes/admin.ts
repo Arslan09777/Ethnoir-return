@@ -444,16 +444,17 @@ router.post('/requests/:id/schedule-pickup', requireAdminAuth, async (req: Reque
       });
     }
 
+    const savedPickup = request.pickupAddressJson ? JSON.parse(request.pickupAddressJson) : null;
     const shippingAddress = JSON.parse(request.order.shippingAddressJson || '{}');
     const customerAddress = {
-      name: shippingAddress.name || request.order.customerEmail || 'Customer',
-      address1: shippingAddress.address1 || 'Customer Address',
-      address2: shippingAddress.address2 || '',
-      city: shippingAddress.city || 'Bengaluru',
-      state: shippingAddress.province || 'Karnataka',
-      pincode: shippingAddress.zip || '560001',
-      phone: request.order.customerPhone || '9876543210',
-      email: request.order.customerEmail || ''
+      name: savedPickup?.name || shippingAddress.name || request.order.customerEmail || 'Customer',
+      address1: savedPickup?.address1 || shippingAddress.address1 || 'Customer Address',
+      address2: savedPickup?.address2 || shippingAddress.address2 || '',
+      city: savedPickup?.city || shippingAddress.city || 'Surat',
+      state: savedPickup?.state || shippingAddress.province || 'Gujarat',
+      pincode: savedPickup?.pincode || shippingAddress.zip || '394210',
+      phone: savedPickup?.phone || request.order.customerPhone || '9876543210',
+      email: savedPickup?.email || request.order.customerEmail || ''
     };
 
     // Schedule reverse pickup via Shiprocket adapter
@@ -495,7 +496,7 @@ router.post('/requests/:id/schedule-pickup', requireAdminAuth, async (req: Reque
               status: 'PICKUP_SCHEDULED',
               actorType: 'ADMIN',
               actorName: req.admin!.email,
-              message: `Reverse pickup scheduled via ${shiprocketResult.courierName} (AWB: ${shiprocketResult.awbNumber}). ${shiprocketResult.isMock ? '[Demo Mode: Simulated AWB]' : ''}`
+              message: `Reverse pickup scheduled via ${shiprocketResult.courierName} (AWB: ${shiprocketResult.awbNumber || 'PENDING_ASSIGNMENT'}).`
             }
           }
         }
@@ -527,6 +528,98 @@ router.post('/requests/:id/schedule-pickup', requireAdminAuth, async (req: Reque
   } catch (err: any) {
     console.error('[Schedule Reverse Pickup Error]:', err);
     return res.status(500).json({ error: 'PICKUP_FAILED', message: err.message });
+  }
+});
+
+/**
+ * 9b. Admin Action: Retry Failed Pickup
+ */
+router.post('/requests/:id/retry-pickup', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const request = await prisma.returnRequest.findUnique({
+      where: { id },
+      include: {
+        order: true,
+        returnItems: { include: { orderItem: true } },
+        shipments: true
+      }
+    });
+
+    if (!request) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    // Mark previous failed reverse shipments
+    await prisma.shipment.updateMany({
+      where: { returnRequestId: id, type: 'REVERSE_PICKUP' },
+      data: { status: 'FAILED' }
+    });
+
+    const savedPickup = request.pickupAddressJson ? JSON.parse(request.pickupAddressJson) : null;
+    const shippingAddress = JSON.parse(request.order.shippingAddressJson || '{}');
+    const customerAddress = {
+      name: savedPickup?.name || shippingAddress.name || request.order.customerEmail || 'Customer',
+      address1: savedPickup?.address1 || shippingAddress.address1 || 'Customer Address',
+      address2: savedPickup?.address2 || shippingAddress.address2 || '',
+      city: savedPickup?.city || shippingAddress.city || 'Surat',
+      state: savedPickup?.state || shippingAddress.province || 'Gujarat',
+      pincode: savedPickup?.pincode || shippingAddress.zip || '394210',
+      phone: savedPickup?.phone || request.order.customerPhone || '9876543210',
+      email: savedPickup?.email || request.order.customerEmail || ''
+    };
+
+    const shiprocketResult = await shiprocketService.createReversePickup({
+      orderId: `${request.order.orderNumber}-RETRY`,
+      requestNumber: request.requestNumber,
+      customerAddress,
+      items: request.returnItems.map(item => ({
+        name: item.orderItem.title,
+        sku: item.orderItem.sku || 'SKU-RET',
+        units: item.quantity,
+        price: item.orderItem.price,
+        qcReason: `Pickup Retry: ${request.reason}`
+      }))
+    });
+
+    await prisma.$transaction([
+      prisma.shipment.create({
+        data: {
+          returnRequestId: request.id,
+          type: 'REVERSE_PICKUP',
+          provider: 'SHIPROCKET',
+          shiprocketShipmentId: shiprocketResult.shipmentId,
+          shiprocketOrderId: shiprocketResult.orderId,
+          awbNumber: shiprocketResult.awbNumber,
+          courierName: shiprocketResult.courierName,
+          trackingUrl: shiprocketResult.trackingUrl,
+          status: 'SCHEDULED',
+          pickupAddressJson: JSON.stringify(customerAddress)
+        }
+      }),
+      prisma.returnRequest.update({
+        where: { id },
+        data: {
+          status: 'PICKUP_SCHEDULED',
+          statusEvents: {
+            create: {
+              status: 'PICKUP_SCHEDULED',
+              actorType: 'ADMIN',
+              actorName: req.admin!.email,
+              message: `Reverse pickup retried via ${shiprocketResult.courierName} (AWB: ${shiprocketResult.awbNumber || 'PENDING'}).`
+            }
+          }
+        }
+      })
+    ]);
+
+    return res.json({
+      success: true,
+      message: 'Reverse pickup re-scheduled successfully.',
+      shipment: shiprocketResult
+    });
+  } catch (err: any) {
+    console.error('[Retry Reverse Pickup Error]:', err);
+    return res.status(500).json({ error: 'RETRY_FAILED', message: err.message });
   }
 });
 
@@ -717,16 +810,17 @@ router.post('/requests/:id/create-replacement', requireAdminAuth, async (req: Re
       }
     }
 
+    const savedPickup = request.pickupAddressJson ? JSON.parse(request.pickupAddressJson) : null;
     const shippingAddress = JSON.parse(request.order.shippingAddressJson || '{}');
     const customerAddress = {
-      name: shippingAddress.name || 'Customer',
-      address1: shippingAddress.address1 || '',
-      address2: shippingAddress.address2 || '',
-      city: shippingAddress.city || 'Bengaluru',
-      state: shippingAddress.province || 'Karnataka',
-      pincode: shippingAddress.zip || '560001',
-      phone: request.order.customerPhone || '9876543210',
-      email: request.order.customerEmail || ''
+      name: savedPickup?.name || shippingAddress.name || 'Customer',
+      address1: savedPickup?.address1 || shippingAddress.address1 || '',
+      address2: savedPickup?.address2 || shippingAddress.address2 || '',
+      city: savedPickup?.city || shippingAddress.city || 'Surat',
+      state: savedPickup?.state || shippingAddress.province || 'Gujarat',
+      pincode: savedPickup?.pincode || shippingAddress.zip || '394210',
+      phone: savedPickup?.phone || request.order.customerPhone || '9876543210',
+      email: savedPickup?.email || request.order.customerEmail || ''
     };
 
     const shiprocketResult = await shiprocketService.createReplacementShipment({
@@ -764,7 +858,7 @@ router.post('/requests/:id/create-replacement', requireAdminAuth, async (req: Re
               status: 'REPLACEMENT_SHIPPED',
               actorType: 'ADMIN',
               actorName: req.admin!.email,
-              message: `Replacement dispatched via ${shiprocketResult.courierName} (AWB: ${shiprocketResult.awbNumber}). ${shiprocketResult.isMock ? '[Demo Mode: Simulated AWB]' : ''}`
+              message: `Replacement dispatched via ${shiprocketResult.courierName} (AWB: ${shiprocketResult.awbNumber || 'PENDING'}).`
             }
           }
         }
@@ -795,6 +889,64 @@ router.post('/requests/:id/create-replacement', requireAdminAuth, async (req: Re
   } catch (err: any) {
     console.error('[Create Replacement Shipment Error]:', err);
     return res.status(500).json({ error: 'SHIPMENT_FAILED', message: err.message });
+  }
+});
+
+/**
+ * 12b. Admin Action: Add Manual Tracking Details
+ */
+router.post('/requests/:id/tracking', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { courierName, awbNumber, trackingUrl, shipmentType = 'REVERSE_PICKUP' } = req.body;
+
+    if (!courierName || !awbNumber) {
+      return res.status(400).json({ error: 'MISSING_DATA', message: 'Courier Name and AWB Number are required.' });
+    }
+
+    const request = await prisma.returnRequest.findUnique({
+      where: { id },
+      include: { order: true }
+    });
+
+    if (!request) return res.status(404).json({ error: 'NOT_FOUND' });
+
+    const finalTrackingUrl = trackingUrl || `https://shiprocket.co//tracking/${awbNumber}`;
+
+    await prisma.$transaction([
+      prisma.shipment.create({
+        data: {
+          returnRequestId: id,
+          type: shipmentType,
+          provider: 'MANUAL',
+          courierName,
+          awbNumber,
+          trackingUrl: finalTrackingUrl,
+          status: 'IN_TRANSIT'
+        }
+      }),
+      prisma.returnRequest.update({
+        where: { id },
+        data: {
+          statusEvents: {
+            create: {
+              status: request.status,
+              actorType: 'ADMIN',
+              actorName: req.admin!.email,
+              message: `Tracking details added manually: ${courierName} (AWB: ${awbNumber})`
+            }
+          }
+        }
+      })
+    ]);
+
+    return res.json({
+      success: true,
+      message: 'Tracking details updated successfully.'
+    });
+  } catch (err: any) {
+    console.error('[Add Tracking Details Error]:', err);
+    return res.status(500).json({ error: 'SERVER_ERROR', message: err.message });
   }
 });
 

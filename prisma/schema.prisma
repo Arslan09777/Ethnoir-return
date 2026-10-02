@@ -109,6 +109,7 @@ model ReturnRequest {
   refundMethod    String?  // ORIGINAL_PAYMENT, STORE_CREDIT, MANUAL_BANK_UPI
   refundAmount    Float?   @default(0)
   refundStatus    String?  // PENDING, PROCESSED, FAILED
+  pickupAddressJson String? // Confirmed pickup address details (JSON)
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

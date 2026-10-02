@@ -74,202 +74,7 @@ export interface ShopifyOrderDetails {
   }[];
 }
 
-// In-memory demo orders for Ethnoir India when credentials are not yet configured in .env
-const DEMO_ORDERS: Record<string, ShopifyOrderDetails> = {
-  '1001': {
-    id: 'gid://shopify/Order/5001',
-    name: '#1001',
-    displayFinancialStatus: 'PAID',
-    displayFulfillmentStatus: 'FULFILLED',
-    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago (Eligible)
-    currencyCode: 'INR',
-    totalPriceSet: { shopMoney: { amount: '4999.00', currencyCode: 'INR' } },
-    customer: {
-      id: 'gid://shopify/Customer/9001',
-      email: 'priya.sharma@example.com',
-      phone: '+919876543210',
-      firstName: 'Priya',
-      lastName: 'Sharma'
-    },
-    shippingAddress: {
-      name: 'Priya Sharma',
-      address1: 'Flat 402, Royal Palms Residency, 14th Main Road',
-      address2: 'Indiranagar',
-      city: 'Bengaluru',
-      province: 'Karnataka',
-      zip: '560038',
-      country: 'India',
-      phone: '+919876543210'
-    },
-    fulfillments: [
-      {
-        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-        deliveredAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-        status: 'SUCCESS'
-      }
-    ],
-    lineItems: {
-      nodes: [
-        {
-          id: 'gid://shopify/LineItem/101',
-          title: 'Handloom Chanderi Silk Kurta Set with Organza Dupatta',
-          variantTitle: 'Emerald Green / Size M',
-          sku: 'ETH-CK-001-M',
-          quantity: 1,
-          originalUnitPriceSet: { shopMoney: { amount: '3499.00', currencyCode: 'INR' } },
-          image: {
-            url: 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=600&q=80',
-            altText: 'Emerald Silk Kurta'
-          },
-          product: {
-            id: 'gid://shopify/Product/701',
-            tags: ['returnable', 'ethnic', 'silk'],
-            variants: {
-              nodes: [
-                { id: 'gid://shopify/ProductVariant/801', title: 'Emerald Green / Size S', sku: 'ETH-CK-001-S', inventoryQuantity: 4, availableForSale: true, price: '3499.00' },
-                { id: 'gid://shopify/ProductVariant/802', title: 'Emerald Green / Size M', sku: 'ETH-CK-001-M', inventoryQuantity: 0, availableForSale: false, price: '3499.00' },
-                { id: 'gid://shopify/ProductVariant/803', title: 'Emerald Green / Size L', sku: 'ETH-CK-001-L', inventoryQuantity: 7, availableForSale: true, price: '3499.00' },
-                { id: 'gid://shopify/ProductVariant/804', title: 'Emerald Green / Size XL', sku: 'ETH-CK-001-XL', inventoryQuantity: 2, availableForSale: true, price: '3499.00' }
-              ]
-            }
-          }
-        },
-        {
-          id: 'gid://shopify/LineItem/102',
-          title: 'Zari Bordered Modal Silk Stole',
-          variantTitle: 'Antique Gold',
-          sku: 'ETH-ST-009-GLD',
-          quantity: 1,
-          originalUnitPriceSet: { shopMoney: { amount: '1500.00', currencyCode: 'INR' } },
-          image: {
-            url: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80',
-            altText: 'Zari Modal Silk Stole'
-          },
-          product: {
-            id: 'gid://shopify/Product/702',
-            tags: ['returnable', 'accessories'],
-            variants: {
-              nodes: [
-                { id: 'gid://shopify/ProductVariant/810', title: 'Antique Gold', sku: 'ETH-ST-009-GLD', inventoryQuantity: 12, availableForSale: true, price: '1500.00' }
-              ]
-            }
-          }
-        }
-      ]
-    }
-  },
-  '1002': {
-    id: 'gid://shopify/Order/5002',
-    name: '#1002',
-    displayFinancialStatus: 'PAID',
-    displayFulfillmentStatus: 'FULFILLED',
-    createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago (Window Expired)
-    currencyCode: 'INR',
-    totalPriceSet: { shopMoney: { amount: '2799.00', currencyCode: 'INR' } },
-    customer: {
-      id: 'gid://shopify/Customer/9002',
-      email: 'rahul.verma@example.com',
-      phone: '+919812345678',
-      firstName: 'Rahul',
-      lastName: 'Verma'
-    },
-    shippingAddress: {
-      name: 'Rahul Verma',
-      address1: 'B-12, Green Park Extension',
-      address2: 'Near South Extension',
-      city: 'New Delhi',
-      province: 'Delhi',
-      zip: '110016',
-      country: 'India',
-      phone: '+919812345678'
-    },
-    fulfillments: [
-      {
-        createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-        deliveredAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
-        status: 'SUCCESS'
-      }
-    ],
-    lineItems: {
-      nodes: [
-        {
-          id: 'gid://shopify/LineItem/103',
-          title: 'Royal Indigo Block Print Tussar Kurta',
-          variantTitle: 'Navy Blue / Size 42',
-          sku: 'ETH-TK-022-42',
-          quantity: 1,
-          originalUnitPriceSet: { shopMoney: { amount: '2799.00', currencyCode: 'INR' } },
-          image: {
-            url: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?auto=format&fit=crop&w=600&q=80',
-            altText: 'Indigo Silk Kurta'
-          },
-          product: {
-            id: 'gid://shopify/Product/703',
-            tags: ['returnable', 'men'],
-            variants: {
-              nodes: [
-                { id: 'gid://shopify/ProductVariant/820', title: 'Navy Blue / Size 40', sku: 'ETH-TK-022-40', inventoryQuantity: 5, availableForSale: true, price: '2799.00' },
-                { id: 'gid://shopify/ProductVariant/821', title: 'Navy Blue / Size 42', sku: 'ETH-TK-022-42', inventoryQuantity: 3, availableForSale: true, price: '2799.00' }
-              ]
-            }
-          }
-        }
-      ]
-    }
-  },
-  '1003': {
-    id: 'gid://shopify/Order/5003',
-    name: '#1003',
-    displayFinancialStatus: 'PAID',
-    displayFulfillmentStatus: 'UNFULFILLED', // Unfulfilled check
-    createdAt: new Date().toISOString(),
-    currencyCode: 'INR',
-    totalPriceSet: { shopMoney: { amount: '1999.00', currencyCode: 'INR' } },
-    customer: {
-      id: 'gid://shopify/Customer/9003',
-      email: 'ananya.iyer@example.com',
-      phone: '+919777888999',
-      firstName: 'Ananya',
-      lastName: 'Iyer'
-    },
-    shippingAddress: {
-      name: 'Ananya Iyer',
-      address1: '45, Jubilee Hills',
-      address2: 'Road No 36',
-      city: 'Hyderabad',
-      province: 'Telangana',
-      zip: '500033',
-      country: 'India',
-      phone: '+919777888999'
-    },
-    fulfillments: [],
-    lineItems: {
-      nodes: [
-        {
-          id: 'gid://shopify/LineItem/104',
-          title: 'Embroidered Banarasi Brocade Potli Bag (Final Sale)',
-          variantTitle: 'Maroon Gold',
-          sku: 'ETH-ACC-POTLI-MRN',
-          quantity: 1,
-          originalUnitPriceSet: { shopMoney: { amount: '1999.00', currencyCode: 'INR' } },
-          image: {
-            url: 'https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=600&q=80',
-            altText: 'Potli Bag'
-          },
-          product: {
-            id: 'gid://shopify/Product/704',
-            tags: ['non-returnable', 'final-sale'],
-            variants: {
-              nodes: [
-                { id: 'gid://shopify/ProductVariant/830', title: 'Maroon Gold', sku: 'ETH-ACC-POTLI-MRN', inventoryQuantity: 8, availableForSale: true, price: '1999.00' }
-              ]
-            }
-          }
-        }
-      ]
-    }
-  }
-};
+
 
 export class ShopifyService {
   private endpoint: string;
@@ -482,22 +287,7 @@ export class ShopifyService {
 
         if (found) return found;
       } catch (err: any) {
-        console.warn(`[ShopifyService] Live fetch failed: ${err.message}. Falling back to demo mode if applicable.`);
-      }
-    }
-
-    // 2. Demo / Mock Mode fallback (ensures immediate local evaluation with Ethnoir India sample orders)
-    const demoOrder = DEMO_ORDERS[cleanNumber];
-    if (demoOrder) {
-      const custEmail = (demoOrder.customer?.email || '').toLowerCase();
-      const custPhone = (demoOrder.customer?.phone || '').replace(/[^0-9]/g, '');
-      const inputPhone = cleanContact.replace(/[^0-9]/g, '');
-
-      const emailMatch = cleanContact.includes('@') && custEmail === cleanContact;
-      const phoneMatch = inputPhone.length >= 7 && (custPhone.includes(inputPhone) || inputPhone.includes(custPhone));
-
-      if (emailMatch || phoneMatch) {
-        return demoOrder;
+        console.error(`[ShopifyService] Order search error: ${err.message}`);
       }
     }
 
@@ -509,7 +299,7 @@ export class ShopifyService {
    */
   async checkVariantStock(variantId: string): Promise<{ inStock: boolean; quantity: number }> {
     if (!config.isShopifyConfigured()) {
-      return { inStock: true, quantity: 10 }; // Demo mock
+      throw new Error('SHOPIFY_NOT_CONFIGURED: Shopify credentials missing');
     }
 
     const query = `
@@ -528,11 +318,11 @@ export class ShopifyService {
         return { inStock: false, quantity: 0 };
       }
       return {
-        inStock: data.productVariant.availableForSale && (data.productVariant.inventoryQuantity ?? 0) > 0,
+        inStock: Boolean(data.productVariant.availableForSale && (data.productVariant.inventoryQuantity ?? 0) > 0),
         quantity: data.productVariant.inventoryQuantity ?? 0
       };
     } catch {
-      return { inStock: true, quantity: 5 };
+      return { inStock: false, quantity: 0 };
     }
   }
 
@@ -541,10 +331,7 @@ export class ShopifyService {
    */
   async createShopifyReturn(orderId: string, returnLineItems: { fulfillmentLineItemId?: string; quantity: number; returnReason?: string }[]): Promise<{ returnId: string; status: string }> {
     if (!config.isShopifyConfigured()) {
-      return {
-        returnId: `gid://shopify/Return/mock_${Date.now()}`,
-        status: 'OPEN'
-      };
+      throw new Error('SHOPIFY_NOT_CONFIGURED: Cannot create Shopify return without valid credentials');
     }
 
     const mutation = `
@@ -599,9 +386,7 @@ export class ShopifyService {
    */
   async processShopifyRefund(orderId: string, amount: number, currency: string, note?: string): Promise<{ refundId: string }> {
     if (!config.isShopifyConfigured()) {
-      return {
-        refundId: `gid://shopify/Refund/mock_${Date.now()}`
-      };
+      throw new Error('SHOPIFY_NOT_CONFIGURED: Cannot process Shopify refund without valid credentials');
     }
 
     const mutation = `
@@ -650,7 +435,7 @@ export class ShopifyService {
     if (!config.isShopifyConfigured()) {
       return {
         success: false,
-        message: 'SHOPIFY_ADMIN_ACCESS_TOKEN is not configured in .env. Running in Demo Mock Mode with sample store data.'
+        message: 'Shopify credentials not configured in environment variables.'
       };
     }
 
@@ -693,7 +478,14 @@ export class ShopifyService {
       .update(rawBody)
       .digest('base64');
 
-    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmacHeader));
+    const digestBuffer = Buffer.from(digest, 'utf8');
+    const hmacBuffer = Buffer.from(hmacHeader, 'utf8');
+
+    if (digestBuffer.length !== hmacBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(digestBuffer, hmacBuffer);
   }
 }
 

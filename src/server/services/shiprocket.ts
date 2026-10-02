@@ -167,9 +167,8 @@ export class ShiprocketService {
    * NOTE: Requires the pickup location name to be registered in Shiprocket panel
    */
   async createReversePickup(params: ReversePickupParams): Promise<ShiprocketShipmentResult> {
-    // Fallback to mock if Shiprocket credentials are not provided
     if (!config.isShiprocketConfigured()) {
-      return this.generateMockReversePickup(params);
+      throw new Error('SHIPROCKET_NOT_CONFIGURED: Missing SHIPROCKET_EMAIL or SHIPROCKET_PASSWORD in environment.');
     }
 
     const pickupLocation = params.pickupLocationName || config.SHIPROCKET_PICKUP_LOCATION_NAME;
@@ -233,15 +232,15 @@ export class ShiprocketService {
       return {
         isMock: false,
         orderId,
-        shipmentId: shipmentId || `SR_RET_${Date.now()}`,
-        awbNumber: awbNumber || `PENDING_${Date.now()}`,
+        shipmentId: shipmentId || '',
+        awbNumber: awbNumber || '',
         courierName,
         trackingUrl,
         status: 'SCHEDULED',
         rawResponse: response,
       };
     } catch (err: any) {
-      throw new Error(`Reverse Pickup Creation Failed: ${err.message}. (Ensure '${pickupLocation}' is registered in your Shiprocket Pickup Address settings).`);
+      throw new Error(`Reverse Pickup Creation Failed: ${err.message}. (Ensure pickup address is valid and warehouse '${pickupLocation}' is registered in Shiprocket settings).`);
     }
   }
 
@@ -261,7 +260,7 @@ export class ShiprocketService {
    */
   async createReplacementShipment(params: ForwardShipmentParams): Promise<ShiprocketShipmentResult> {
     if (!config.isShiprocketConfigured()) {
-      return this.generateMockForwardShipment(params);
+      throw new Error('SHIPROCKET_NOT_CONFIGURED: Missing SHIPROCKET_EMAIL or SHIPROCKET_PASSWORD in environment.');
     }
 
     const pickupLocation = params.pickupLocationName || config.SHIPROCKET_PICKUP_LOCATION_NAME;
@@ -317,8 +316,8 @@ export class ShiprocketService {
       return {
         isMock: false,
         orderId: response.order_id?.toString() || params.orderId,
-        shipmentId: shipmentId || `SR_FWD_${Date.now()}`,
-        awbNumber: awbNumber || `PENDING_AWB_${Date.now()}`,
+        shipmentId: shipmentId || '',
+        awbNumber: awbNumber || '',
         courierName,
         trackingUrl: awbNumber ? `https://shiprocket.co//tracking/${awbNumber}` : 'https://shiprocket.co/tracking',
         status: 'MANIFESTED',
@@ -333,18 +332,17 @@ export class ShiprocketService {
    * 3. TRACK SHIPMENT / AWB STATUS
    */
   async trackShipment(awbNumber: string): Promise<TrackingStatusResult> {
-    if (!config.isShiprocketConfigured() || awbNumber.startsWith('MOCK_') || awbNumber.startsWith('PENDING_')) {
+    if (!awbNumber || awbNumber === 'PENDING') {
       return {
-        awbNumber,
-        currentStatus: 'IN_TRANSIT',
-        statusCode: 17,
-        location: 'Bengaluru Hub',
-        lastUpdated: new Date().toISOString(),
-        events: [
-          { date: new Date().toISOString(), status: 'OUT_FOR_PICKUP', activity: 'Courier agent assigned for pickup', location: 'Customer Residence' },
-          { date: new Date(Date.now() - 3600000).toISOString(), status: 'PICKUP_SCHEDULED', activity: 'Reverse pickup booked in system', location: 'System' }
-        ]
+        awbNumber: awbNumber || '',
+        currentStatus: 'AWB_PENDING',
+        statusCode: 0,
+        events: []
       };
+    }
+
+    if (!config.isShiprocketConfigured()) {
+      throw new Error('SHIPROCKET_NOT_CONFIGURED: Missing SHIPROCKET_EMAIL or SHIPROCKET_PASSWORD');
     }
 
     try {
@@ -353,7 +351,7 @@ export class ShiprocketService {
       if (!trackData) {
         return {
           awbNumber,
-          currentStatus: 'PENDING',
+          currentStatus: 'AWAITING_CARRIER_UPDATE',
           statusCode: 0,
           events: []
         };
@@ -389,7 +387,7 @@ export class ShiprocketService {
     if (!config.isShiprocketConfigured()) {
       return {
         success: false,
-        message: 'Shiprocket email/password not configured in .env. Running in Demo Mock Mode with simulated AWBs.'
+        message: 'Shiprocket email/password not configured in .env.'
       };
     }
 
@@ -406,35 +404,6 @@ export class ShiprocketService {
         message: `Failed to connect to Shiprocket API: ${err.message}`
       };
     }
-  }
-
-  // --- Realistic Mock Generators for instant local demonstration ---
-  private generateMockReversePickup(params: ReversePickupParams): ShiprocketShipmentResult {
-    const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
-    const awb = `SR_REV_${randomDigits}`;
-    return {
-      isMock: true,
-      orderId: `SR_ORD_${Date.now()}`,
-      shipmentId: `SR_SHIP_${Date.now()}`,
-      awbNumber: awb,
-      courierName: 'Delhivery Surface (Reverse Logistics)',
-      trackingUrl: `https://shiprocket.co//tracking/${awb}`,
-      status: 'SCHEDULED'
-    };
-  }
-
-  private generateMockForwardShipment(params: ForwardShipmentParams): ShiprocketShipmentResult {
-    const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
-    const awb = `SR_FWD_${randomDigits}`;
-    return {
-      isMock: true,
-      orderId: `SR_ORD_FWD_${Date.now()}`,
-      shipmentId: `SR_SHIP_FWD_${Date.now()}`,
-      awbNumber: awb,
-      courierName: 'Blue Dart Air Express',
-      trackingUrl: `https://shiprocket.co//tracking/${awb}`,
-      status: 'MANIFESTED'
-    };
   }
 }
 

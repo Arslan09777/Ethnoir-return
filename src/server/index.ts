@@ -141,7 +141,7 @@ async function bootstrap() {
       console.log(`🚀 Ethnoir Return & Replacement Server running on :${port}`);
       console.log(`🏪 Store: ${config.SHOPIFY_SHOP} (GraphQL API: ${config.SHOPIFY_API_VERSION})`);
       console.log(`📦 Shiprocket Base: ${config.SHIPROCKET_API_BASE}`);
-      console.log(`Mode: ${config.isShopifyConfigured() ? 'LIVE SHOPIFY' : 'DEMO MOCK MODE'}`);
+      console.log(`Mode: PRODUCTION (Shopify GraphQL 2026-07 + Shiprocket Logistics)`);
       console.log(`Default Admin: ${config.ADMIN_DEFAULT_EMAIL}`);
       console.log(`======================================================\n`);
     });

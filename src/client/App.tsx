@@ -9,11 +9,13 @@ import { DiagnosticsModal } from './components/DiagnosticsModal.js';
 export function App() {
   const [activeTab, setActiveTab] = useState<'customer' | 'track' | 'admin' | 'settings'>('customer');
   const [trackingRequestNumber, setTrackingRequestNumber] = useState<string | null>(null);
+  const [trackingContact, setTrackingContact] = useState<string | null>(null);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
 
-  const handleViewRequest = (requestNumber: string) => {
+  const handleViewRequest = (requestNumber: string, contact: string) => {
     setTrackingRequestNumber(requestNumber);
+    setTrackingContact(contact);
     setActiveTab('track');
   };
 
@@ -34,7 +36,10 @@ export function App() {
         )}
 
         {activeTab === 'track' && (
-          <RequestTracker initialRequestNumber={trackingRequestNumber} />
+          <RequestTracker
+            initialRequestNumber={trackingRequestNumber}
+            initialContact={trackingContact}
+          />
         )}
 
         {activeTab === 'admin' && (

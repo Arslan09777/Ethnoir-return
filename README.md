@@ -108,7 +108,7 @@ SESSION_SECRET=a-secure-random-secret-key
 PORT=5000
 RETURN_WINDOW_DAYS=7
 ```
-> **Note on Demo Mode**: If Shopify or Shiprocket credentials are left empty in `.env`, the system automatically runs in **Demo Mock Mode**. You can immediately test orders `#1001`, `#1002`, `#1003` with realistic sample data, simulated Shiprocket reverse AWBs, and automated notifications!
+> **Production Live System**: The system is fully integrated with live Shopify GraphQL Admin API and Shiprocket. Live orders are looked up in real-time, reverse pickups are manifested directly on Shiprocket, and refunds are processed via Shopify GraphQL mutations.
 
 ### 3. Initialize Database
 ```bash

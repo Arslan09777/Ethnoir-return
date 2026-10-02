@@ -24,8 +24,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   setIsAdminLoggedIn
 }) => {
   // Login State
-  const [loginEmail, setLoginEmail] = useState('admin@ethnoirindia.com');
-  const [loginPassword, setLoginPassword] = useState('Admin@Ethnoir2026!');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -57,6 +57,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Reject reason dialog
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectionReasonText, setRejectionReasonText] = useState('');
+
+  // Manual Tracking Dialog
+  const [showTrackingDialog, setShowTrackingDialog] = useState(false);
+  const [manualCourierName, setManualCourierName] = useState('');
+  const [manualAwb, setManualAwb] = useState('');
+  const [manualTrackingUrl, setManualTrackingUrl] = useState('');
 
   // Internal note input
   const [internalNoteText, setInternalNoteText] = useState('');
@@ -304,6 +310,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (!res.ok) throw new Error(data.message);
 
       setActionSuccess('Request marked as Completed.');
+      openDetail(selectedRequestId);
+      fetchStats();
+      fetchRequests();
+    } catch (err: any) {
+      setActionError(err.message);
+    }
+  };
+
+  const handleRetryPickup = async () => {
+    if (!selectedRequestId) return;
+    setActionError(null);
+    setActionSuccess(null);
+
+    try {
+      const res = await fetch(`/api/admin/requests/${selectedRequestId}/retry-pickup`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      setActionSuccess(`Reverse pickup retry initiated with Shiprocket! AWB: ${data.shipment.awbNumber || 'PENDING'}`);
+      openDetail(selectedRequestId);
+      fetchStats();
+      fetchRequests();
+    } catch (err: any) {
+      setActionError(err.message);
+    }
+  };
+
+  const handleAddManualTracking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequestId) return;
+    setActionError(null);
+    setActionSuccess(null);
+
+    try {
+      const res = await fetch(`/api/admin/requests/${selectedRequestId}/tracking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courierName: manualCourierName,
+          awbNumber: manualAwb,
+          trackingUrl: manualTrackingUrl
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      setActionSuccess('Courier tracking details updated successfully.');
+      setShowTrackingDialog(false);
+      setManualCourierName('');
+      setManualAwb('');
+      setManualTrackingUrl('');
       openDetail(selectedRequestId);
       fetchStats();
       fetchRequests();
@@ -730,6 +787,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 )}
 
+                {/* Confirmed Pickup Address */}
+                {requestDetail.pickupAddressJson && (
+                  <div className="p-3.5 border border-[#E6E6E6] rounded-sm text-xs bg-[#FAFAFA] space-y-1">
+                    <span className="text-[10px] uppercase tracking-wider text-[#5F5F5F] block font-semibold">
+                      Confirmed Doorstep Pickup Address
+                    </span>
+                    {(() => {
+                      try {
+                        const addr = JSON.parse(requestDetail.pickupAddressJson);
+                        return (
+                          <div className="text-[#111111]">
+                            <p className="font-medium">{addr.name} • {addr.phone}</p>
+                            <p className="text-[#5F5F5F]">{addr.address1} {addr.address2 || ''}</p>
+                            <p className="text-[#5F5F5F]">{addr.city}, {addr.state} - {addr.pincode}</p>
+                          </div>
+                        );
+                      } catch {
+                        return <p className="text-[#5F5F5F]">{requestDetail.pickupAddressJson}</p>;
+                      }
+                    })()}
+                  </div>
+                )}
+
                 {/* Workflow Actions */}
                 <div className="pt-4 border-t border-[#E6E6E6] space-y-3">
                   <span className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#111111] block">
@@ -768,6 +848,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </button>
                       )}
 
+                    {/* Retry Reverse Pickup */}
+                    {requestDetail.shipments.some(s => s.type === 'REVERSE_PICKUP' && s.status === 'FAILED') && (
+                      <button
+                        onClick={handleRetryPickup}
+                        className="ethnoir-btn-primary py-2 px-4 text-xs flex items-center space-x-1.5"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Retry Reverse Pickup (Shiprocket)</span>
+                      </button>
+                    )}
+
                     {/* Mark Received */}
                     {(requestDetail.status === 'PICKUP_SCHEDULED' || requestDetail.status === 'PICKED_UP' || requestDetail.status === 'APPROVED') && (
                       <button
@@ -799,6 +890,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           Dispatch Replacement (Shiprocket)
                         </button>
                       )}
+
+                    {/* Add Tracking Details */}
+                    <button
+                      onClick={() => setShowTrackingDialog(true)}
+                      className="ethnoir-btn-outline py-2 px-4 text-xs"
+                    >
+                      Add / Update Tracking
+                    </button>
 
                     {/* Close */}
                     {requestDetail.status !== 'COMPLETED' && (
@@ -889,6 +988,78 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Confirm Rejection
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Tracking Dialog */}
+      {showTrackingDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white border border-[#111111] rounded-sm max-w-md w-full p-6 space-y-4 text-left">
+            <h3 className="font-serif text-xl font-medium text-[#111111]">
+              Add Courier Tracking Details
+            </h3>
+            <p className="text-xs text-[#5F5F5F]">
+              Record courier partner and AWB tracking details for this return or replacement shipment.
+            </p>
+            <form onSubmit={handleAddManualTracking} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                  Courier Partner Name *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Delhivery, Blue Dart, DTDC"
+                  value={manualCourierName}
+                  onChange={e => setManualCourierName(e.target.value)}
+                  className="w-full ethnoir-input text-xs"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                  AWB Tracking Number *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 14238910293"
+                  value={manualAwb}
+                  onChange={e => setManualAwb(e.target.value)}
+                  className="w-full ethnoir-input text-xs font-mono"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                  Tracking URL (Optional)
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={manualTrackingUrl}
+                  onChange={e => setManualTrackingUrl(e.target.value)}
+                  className="w-full ethnoir-input text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTrackingDialog(false)}
+                  className="text-xs uppercase tracking-wider text-[#5F5F5F] px-3 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="ethnoir-btn-primary py-2 px-4 text-xs"
+                >
+                  Save Tracking
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

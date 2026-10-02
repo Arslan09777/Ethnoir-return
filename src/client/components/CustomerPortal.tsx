@@ -7,7 +7,11 @@ import {
   ArrowRight,
   ArrowLeft,
   Check,
-  ShoppingBag
+  ShoppingBag,
+  MapPin,
+  ShieldCheck,
+  Calendar,
+  AlertCircle
 } from 'lucide-react';
 import { CustomerOrder, EligibilityInfo, OrderItem } from '../types.js';
 
@@ -28,17 +32,28 @@ interface UploadedFileState {
   url: string;
 }
 
+interface PickupAddressState {
+  name: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  email?: string;
+}
+
 interface CustomerPortalProps {
-  onViewRequest: (requestNumber: string) => void;
+  onViewRequest: (requestNumber: string, contact: string) => void;
 }
 
 export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest }) => {
-  // 5 Step Screens: 'WELCOME' | 'ORDER_RESULT' | 'REQUEST_TYPE' | 'REASON_DETAILS' | 'CONFIRMATION'
+  // Screens: 'WELCOME' | 'ORDER_RESULT' | 'REQUEST_TYPE' | 'REASON_DETAILS' | 'PICKUP_CONFIRMATION' | 'CONFIRMATION'
   const [currentScreen, setCurrentScreen] = useState<
-    'WELCOME' | 'ORDER_RESULT' | 'REQUEST_TYPE' | 'REASON_DETAILS' | 'CONFIRMATION'
+    'WELCOME' | 'ORDER_RESULT' | 'REQUEST_TYPE' | 'REASON_DETAILS' | 'PICKUP_CONFIRMATION' | 'CONFIRMATION'
   >('WELCOME');
 
-  // Form State
+  // Lookup State
   const [orderNumber, setOrderNumber] = useState('');
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -58,23 +73,29 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Pickup Address State
+  const [pickupAddress, setPickupAddress] = useState<PickupAddressState>({
+    name: '',
+    address1: '',
+    address2: '',
+    city: '',
+    state: '',
+    pincode: '',
+    phone: '',
+    email: ''
+  });
+  const [addressValidationError, setAddressValidationError] = useState<string | null>(null);
+
   // Submission State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [createdRequestNumber, setCreatedRequestNumber] = useState<string | null>(null);
 
-  // Fast demo prefill
-  const handleQuickDemo = (demoNum: string, demoContact: string) => {
-    setOrderNumber(demoNum);
-    setEmailOrPhone(demoContact);
-    setLookupError(null);
-  };
-
   // 1. Order Lookup
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orderNumber.trim() || !emailOrPhone.trim()) {
-      setLookupError('Please enter both your Order Number and registered Email/Mobile.');
+      setLookupError('Please enter both your Order Number and registered Email or Mobile Number.');
       return;
     }
 
@@ -85,7 +106,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
       const res = await fetch('/api/customer/orders/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderNumber, emailOrPhone })
+        body: JSON.stringify({ orderNumber: orderNumber.trim(), emailOrPhone: emailOrPhone.trim() })
       });
 
       const data = await res.json();
@@ -95,6 +116,19 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
 
       setOrder(data.order);
       setEligibility(data.eligibility);
+
+      // Pre-fill pickup address from order shipping address
+      const shipAddr = data.order.shippingAddress || {};
+      setPickupAddress({
+        name: shipAddr.name || data.order.customer.name || '',
+        address1: shipAddr.address1 || '',
+        address2: shipAddr.address2 || '',
+        city: shipAddr.city || '',
+        state: shipAddr.province || '',
+        pincode: shipAddr.zip || '',
+        phone: data.order.customer.phone || shipAddr.phone || emailOrPhone.trim(),
+        email: data.order.customer.email || (emailOrPhone.includes('@') ? emailOrPhone.trim() : '')
+      });
 
       // Auto-select first eligible item
       const firstEligible = data.order.items.find((it: OrderItem) => it.isEligible && it.availableUnits > 0);
@@ -107,11 +141,13 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
             replacementVariantTitle: firstEligible.availableVariants?.[0]?.title,
           }
         });
+      } else {
+        setSelectedItems({});
       }
 
       setCurrentScreen('ORDER_RESULT');
     } catch (err: any) {
-      setLookupError(err.message);
+      setLookupError(err.message || 'Unable to retrieve order. Please verify your details.');
     } finally {
       setIsLoading(false);
     }
@@ -137,10 +173,37 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
     });
   };
 
-  // Photo Upload Handler
+  // Update item quantity
+  const handleQuantityChange = (itemId: string, qty: number, maxQty: number) => {
+    if (qty < 1 || qty > maxQty) return;
+    setSelectedItems(prev => ({
+      ...prev,
+      [itemId]: {
+        ...prev[itemId],
+        quantity: qty
+      }
+    }));
+  };
+
+  // Photo Upload Handler with MIME and extension validation
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    // Disallow executable files and validate extensions
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic'];
+    for (let i = 0; i < files.length; i++) {
+      const name = files[i].name.toLowerCase();
+      const isAllowed = allowedExtensions.some(ext => name.endsWith(ext));
+      if (!isAllowed) {
+        setUploadError('Only image files (JPEG, PNG, WEBP, HEIC) are permitted. Executable files are strictly blocked.');
+        return;
+      }
+      if (files[i].size > 5 * 1024 * 1024) {
+        setUploadError(`File "${files[i].name}" exceeds the maximum allowed size of 5MB.`);
+        return;
+      }
+    }
 
     setIsUploading(true);
     setUploadError(null);
@@ -158,7 +221,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Image upload failed.');
+        throw new Error(data.message || 'Upload failed.');
       }
 
       setUploadedFiles(prev => [...prev, ...data.files]);
@@ -170,33 +233,77 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
   };
 
   const removeUploadedFile = (index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+    setUploadedFiles(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  // Validate pickup address before proceeding to final submission
+  const handleProceedToPickup = () => {
+    setCurrentScreen('PICKUP_CONFIRMATION');
+  };
+
+  const validateAndSubmit = () => {
+    setAddressValidationError(null);
+
+    // Validate Contact Name
+    if (!pickupAddress.name || pickupAddress.name.trim().length < 2) {
+      setAddressValidationError('Please enter a valid recipient / contact name.');
+      return;
+    }
+
+    // Validate Address 1
+    if (!pickupAddress.address1 || pickupAddress.address1.trim().length < 5) {
+      setAddressValidationError('Please enter a complete pickup address (House/Flat, Street).');
+      return;
+    }
+
+    // Validate City & State
+    if (!pickupAddress.city || !pickupAddress.state) {
+      setAddressValidationError('Please provide City and State for courier routing.');
+      return;
+    }
+
+    // Validate Indian PIN Code: 6 digits, non-zero starting
+    const pinRegex = /^[1-9][0-9]{5}$/;
+    if (!pinRegex.test(pickupAddress.pincode.trim())) {
+      setAddressValidationError('Please enter a valid 6-digit Indian PIN code (e.g. 394210).');
+      return;
+    }
+
+    // Validate Indian Mobile: 10 digits
+    const cleanPhone = pickupAddress.phone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length < 10) {
+      setAddressValidationError('Please enter a valid 10-digit Indian mobile number for courier pickup coordination.');
+      return;
+    }
+
+    handleSubmitRequest();
   };
 
   // Submit Final Request
   const handleSubmitRequest = async () => {
-    const itemsList = Object.values(selectedItems);
-    if (itemsList.length === 0) {
-      setSubmitError('Please select at least one item.');
-      return;
-    }
+    if (!order) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
       const payload = {
-        orderId: order!.id,
+        orderId: order.id,
         requestType,
         reason,
         customerNotes,
         refundMethod: requestType === 'RETURN_REFUND' ? refundMethod : undefined,
-        items: itemsList.map(item => ({
-          orderItemId: item.orderItemId,
-          quantity: item.quantity,
+        pickupAddress: {
+          ...pickupAddress,
+          pincode: pickupAddress.pincode.trim(),
+          phone: pickupAddress.phone.trim()
+        },
+        items: Object.values(selectedItems).map(sel => ({
+          orderItemId: sel.orderItemId,
+          quantity: sel.quantity,
           reason,
-          replacementVariantId: requestType === 'REPLACEMENT' ? item.replacementVariantId : undefined,
-          replacementVariantTitle: requestType === 'REPLACEMENT' ? item.replacementVariantTitle : undefined
+          replacementVariantId: sel.replacementVariantId,
+          replacementVariantTitle: sel.replacementVariantTitle
         })),
         uploadedFiles: uploadedFiles.map(f => ({
           filename: f.filename,
@@ -215,38 +322,58 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Request submission failed.');
+        throw new Error(data.message || 'Submission failed. Please try again.');
       }
 
       setCreatedRequestNumber(data.requestNumber);
       setCurrentScreen('CONFIRMATION');
     } catch (err: any) {
-      setSubmitError(err.message);
+      setSubmitError(err.message || 'Failed to submit request. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const selectedCount = Object.keys(selectedItems).length;
+  const totalRefundEstimate = Object.values(selectedItems).reduce((sum, sel) => {
+    const it = order?.items.find(i => i.id === sel.orderItemId);
+    return sum + (it ? it.price * sel.quantity : 0);
+  }, 0);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
-      {/* ---------------- SCREEN 1: WELCOME SCREEN ---------------- */}
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+      {/* ---------------- SCREEN 1: WELCOME & LOOKUP ---------------- */}
       {currentScreen === 'WELCOME' && (
-        <div className="space-y-10 text-center">
-          <div className="space-y-4">
+        <div className="space-y-12">
+          {/* Header */}
+          <div className="text-center space-y-4 max-w-xl mx-auto">
             <span className="text-[11px] font-medium tracking-[0.25em] uppercase text-[#5F5F5F] block">
-              Ethnoir Private Client Services
+              Client Services
             </span>
             <h1 className="font-serif text-3xl sm:text-5xl font-medium text-[#111111] tracking-tight">
               Returns &amp; Replacements
             </h1>
-            <p className="text-sm text-[#5F5F5F] max-w-md mx-auto leading-relaxed">
-              We offer seamless doorstep returns and complimentary size exchanges within our 7-day policy window.
+            <p className="text-sm text-[#5F5F5F] leading-relaxed">
+              We offer complimentary doorstep pickup and size exchanges within 7 days of delivery.
+              Please provide your order details to begin.
             </p>
           </div>
 
-          <div className="max-w-md mx-auto text-left">
+          {/* Policy Banner */}
+          <div className="max-w-md mx-auto p-4 border border-[#E6E6E6] bg-[#FAFAFA] text-xs text-[#5F5F5F] flex items-start space-x-3 rounded-sm">
+            <ShieldCheck className="w-4 h-4 text-[#111111] flex-shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-semibold text-[#111111] block uppercase tracking-wider text-[10px]">
+                Ethnoir 7-Day Guarantee
+              </span>
+              <p>
+                Garments must be unworn, unwashed and returned with original security tags and designer packaging intact.
+              </p>
+            </div>
+          </div>
+
+          {/* Lookup Form */}
+          <div className="max-w-md mx-auto border border-[#E6E6E6] p-6 sm:p-8 bg-white shadow-sm rounded-sm">
             <form onSubmit={handleLookup} className="space-y-5">
               <div>
                 <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
@@ -258,18 +385,21 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                   </span>
                   <input
                     type="text"
-                    placeholder="e.g. 1001"
+                    placeholder="e.g. ET-1124 or 1124"
                     value={orderNumber}
                     onChange={e => setOrderNumber(e.target.value)}
                     className="w-full ethnoir-input pl-8"
                     required
                   />
                 </div>
+                <span className="text-[10px] text-[#8E8E8E] mt-1 block">
+                  Found on your order confirmation email or invoice
+                </span>
               </div>
 
               <div>
                 <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
-                  Email or Mobile Number
+                  Email Address or Mobile Number
                 </label>
                 <input
                   type="text"
@@ -279,59 +409,30 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                   className="w-full ethnoir-input"
                   required
                 />
+                <span className="text-[10px] text-[#8E8E8E] mt-1 block">
+                  Must match the contact provided at checkout
+                </span>
               </div>
 
               {lookupError && (
-                <div className="p-3.5 border border-[#111111] bg-[#FAFAFA] text-xs text-[#111111] leading-relaxed">
-                  {lookupError}
+                <div className="p-3.5 border border-[#111111] bg-[#FAFAFA] text-xs text-[#111111] leading-relaxed flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-[#111111] flex-shrink-0 mt-0.5" />
+                  <span>{lookupError}</span>
                 </div>
               )}
 
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full ethnoir-btn-primary flex items-center justify-center space-x-2"
+                className="w-full ethnoir-btn-primary flex items-center justify-center space-x-2 pt-3 pb-3"
               >
                 {isLoading ? (
-                  <span>Verifying Order...</span>
+                  <span>Verifying Order with Store...</span>
                 ) : (
                   <span>Find My Order</span>
                 )}
               </button>
             </form>
-
-            {/* Quick Test Demo Options */}
-            <div className="mt-8 pt-6 border-t border-[#E6E6E6]">
-              <span className="text-[10px] uppercase tracking-[0.18em] text-[#8E8E8E] block mb-3 font-medium">
-                Test with Sample Orders:
-              </span>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('1001', 'priya.sharma@example.com')}
-                  className="p-2.5 text-left border border-[#E6E6E6] hover:border-[#111111] transition-colors rounded-sm"
-                >
-                  <span className="font-semibold block text-[#111111]">#1001</span>
-                  <span className="text-[10px] text-[#5F5F5F] block">Eligible (Silk Set)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('1002', 'rahul.verma@example.com')}
-                  className="p-2.5 text-left border border-[#E6E6E6] hover:border-[#111111] transition-colors rounded-sm"
-                >
-                  <span className="font-semibold block text-[#111111]">#1002</span>
-                  <span className="text-[10px] text-[#5F5F5F] block">Window Expired</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemo('1003', 'ananya.iyer@example.com')}
-                  className="p-2.5 text-left border border-[#E6E6E6] hover:border-[#111111] transition-colors rounded-sm"
-                >
-                  <span className="font-semibold block text-[#111111]">#1003</span>
-                  <span className="text-[10px] text-[#5F5F5F] block">Final Sale Item</span>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -340,37 +441,37 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
       {currentScreen === 'ORDER_RESULT' && order && (
         <div className="space-y-8">
           {/* Header Summary */}
-          <div className="flex items-center justify-between pb-6 border-b border-[#E6E6E6]">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-[#E6E6E6]">
             <div>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block">
-                Order Summary
+              <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block font-medium">
+                Verified Order
               </span>
-              <h2 className="font-serif text-2xl font-medium text-[#111111]">
+              <h2 className="font-serif text-2xl sm:text-3xl font-medium text-[#111111]">
                 Order #{order.orderNumber}
               </h2>
               <p className="text-xs text-[#5F5F5F] mt-1">
-                Placed on {new Date(order.createdAt).toLocaleDateString()} • {order.customer.email}
+                Placed on {new Date(order.createdAt).toLocaleDateString()} • {order.customer.email || order.customer.phone}
               </p>
             </div>
-            <div className="text-right">
+            <div className="text-left sm:text-right">
               <span className="text-[10px] uppercase tracking-[0.14em] text-[#5F5F5F] block">
-                Delivery Status
+                Fulfillment Status
               </span>
               <span className="badge-approved mt-0.5 inline-block">
-                {order.fulfillmentStatus}
+                {order.fulfillmentStatus || 'DELIVERED'}
               </span>
               {eligibility && (
                 <p className="text-[11px] text-[#5F5F5F] mt-1">
-                  {eligibility.daysRemaining} days left to return
+                  {eligibility.daysRemaining} days remaining in return window
                 </p>
               )}
             </div>
           </div>
 
-          {/* Eligibility Note if any */}
+          {/* Ineligibility Warning */}
           {eligibility && !eligibility.isEligible && (
             <div className="p-4 border border-[#111111] bg-[#FAFAFA] text-xs text-[#111111] space-y-1">
-              <span className="font-semibold uppercase tracking-wider block">Return Restrictions</span>
+              <span className="font-semibold uppercase tracking-wider block">Return Notice</span>
               {eligibility.reasons.map((r, i) => (
                 <p key={i} className="text-[#5F5F5F]">• {r}</p>
               ))}
@@ -380,68 +481,91 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
           {/* Products List */}
           <div className="space-y-4">
             <span className="text-[11px] font-semibold tracking-[0.16em] uppercase text-[#111111] block">
-              Select Item(s)
+              Select Item(s) to Return or Exchange
             </span>
 
             {order.items.map(item => {
               const isSelected = Boolean(selectedItems[item.id]);
+              const currentQty = selectedItems[item.id]?.quantity || 1;
 
               return (
                 <div
                   key={item.id}
-                  onClick={() => toggleItemSelection(item)}
-                  className={`p-4 sm:p-5 border transition-all cursor-pointer rounded-sm flex items-start gap-4 sm:gap-6 ${
+                  className={`p-4 sm:p-5 border transition-all rounded-sm flex flex-col sm:flex-row items-start gap-4 sm:gap-6 ${
                     !item.isEligible
-                      ? 'border-[#E6E6E6] opacity-50 cursor-not-allowed bg-[#FAFAFA]'
+                      ? 'border-[#E6E6E6] opacity-60 bg-[#FAFAFA]'
                       : isSelected
                       ? 'border-[#111111] bg-[#FAFAFA]'
                       : 'border-[#E6E6E6] hover:border-[#111111] bg-[#FFFFFF]'
                   }`}
                 >
-                  {/* Outline Selection Control */}
-                  <div className="pt-1">
+                  <div className="flex items-start gap-4 flex-1">
+                    {/* Checkbox */}
                     <div
-                      className={`w-5 h-5 rounded-sm border flex items-center justify-center transition-colors ${
-                        isSelected
-                          ? 'border-[#111111] bg-[#111111] text-white'
-                          : 'border-[#111111] bg-white'
-                      }`}
+                      onClick={() => toggleItemSelection(item)}
+                      className="pt-1 cursor-pointer"
                     >
-                      {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                      <div
+                        className={`w-5 h-5 rounded-sm border flex items-center justify-center transition-colors ${
+                          isSelected
+                            ? 'border-[#111111] bg-[#111111] text-white'
+                            : 'border-[#111111] bg-white'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                      </div>
+                    </div>
+
+                    {/* Product Image */}
+                    <div className="w-20 h-24 sm:w-24 sm:h-28 bg-[#F8F8F8] border border-[#E6E6E6] rounded-sm overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ShoppingBag className="w-8 h-8 text-[#8E8E8E]" />
+                      )}
+                    </div>
+
+                    {/* Details */}
+                    <div className="space-y-1 text-left">
+                      <h3 className="font-serif text-base sm:text-lg font-medium text-[#111111] leading-snug">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs text-[#5F5F5F]">
+                        {item.variantTitle || 'Standard Edition'} {item.sku ? `• SKU: ${item.sku}` : ''}
+                      </p>
+                      <p className="text-xs text-[#111111] font-medium">
+                        Unit Price: ₹{item.price.toLocaleString('en-IN')}
+                      </p>
+
+                      {!item.isEligible && (
+                        <p className="text-[11px] text-[#8E8E8E] font-medium pt-1">
+                          {item.ineligibilityReason || 'Not eligible for return under current policy'}
+                        </p>
+                      )}
                     </div>
                   </div>
 
-                  {/* Clean Product Image */}
-                  <div className="w-20 h-24 sm:w-24 sm:h-28 bg-[#F8F8F8] border border-[#E6E6E6] rounded-sm overflow-hidden flex-shrink-0 flex items-center justify-center">
-                    {item.imageUrl ? (
-                      <img
-                        src={item.imageUrl}
-                        alt={item.title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <ShoppingBag className="w-8 h-8 text-[#8E8E8E]" />
-                    )}
-                  </div>
-
-                  {/* Details */}
-                  <div className="flex-1 space-y-1 text-left">
-                    <h3 className="font-serif text-base sm:text-lg font-medium text-[#111111] leading-snug">
-                      {item.title}
-                    </h3>
-                    <p className="text-xs text-[#5F5F5F]">
-                      {item.variantTitle || 'Standard Edition'}
-                    </p>
-                    <p className="text-xs text-[#5F5F5F]">
-                      Quantity: {item.quantity} • Unit Price: ₹{item.price.toLocaleString('en-IN')}
-                    </p>
-
-                    {!item.isEligible && (
-                      <p className="text-[11px] text-[#111111] font-medium pt-1">
-                        {item.ineligibilityReason}
-                      </p>
-                    )}
-                  </div>
+                  {/* Quantity selector if selected */}
+                  {isSelected && item.availableUnits > 1 && (
+                    <div className="sm:self-center flex items-center space-x-2 pt-2 sm:pt-0">
+                      <span className="text-[11px] uppercase tracking-wider text-[#5F5F5F]">Qty:</span>
+                      <select
+                        value={currentQty}
+                        onChange={e => handleQuantityChange(item.id, parseInt(e.target.value, 10), item.availableUnits)}
+                        className="ethnoir-input py-1 px-2 text-xs"
+                      >
+                        {Array.from({ length: item.availableUnits }, (_, i) => i + 1).map(n => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -471,18 +595,18 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
         </div>
       )}
 
-      {/* ---------------- SCREEN 3: REQUEST TYPE SCREEN ---------------- */}
+      {/* ---------------- SCREEN 3: RESOLUTION TYPE SCREEN ---------------- */}
       {currentScreen === 'REQUEST_TYPE' && (
         <div className="space-y-8">
           <div className="text-center space-y-2">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block">
-              Step 2 of 3
+              Step 2 of 4
             </span>
             <h2 className="font-serif text-3xl font-medium text-[#111111]">
               Select Resolution Type
             </h2>
             <p className="text-xs text-[#5F5F5F]">
-              Choose whether you wish to receive a refund or exchange for an alternate size or variant.
+              Choose whether you wish to return for a refund or request an alternate size / variant exchange.
             </p>
           </div>
 
@@ -504,7 +628,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                   Return &amp; Refund
                 </h3>
                 <p className="text-xs text-[#5F5F5F] leading-relaxed">
-                  Send your item back via complimentary doorstep pickup and receive your refund to the original payment method or store credit.
+                  Send your item back via complimentary doorstep courier pickup and receive your refund to your original payment method or store credit.
                 </p>
               </div>
               <div className="pt-2">
@@ -534,10 +658,10 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
               </div>
               <div className="space-y-1">
                 <h3 className="font-serif text-xl font-medium text-[#111111]">
-                  Replacement
+                  Replacement / Exchange
                 </h3>
                 <p className="text-xs text-[#5F5F5F] leading-relaxed">
-                  Exchange for another available size or variant. A new courier dispatch will be initiated upon approval.
+                  Exchange for another available size or variant. A forward courier dispatch will be initiated upon quality verification.
                 </p>
               </div>
               <div className="pt-2">
@@ -611,18 +735,18 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
         </div>
       )}
 
-      {/* ---------------- SCREEN 4: REASON AND DETAILS SCREEN ---------------- */}
+      {/* ---------------- SCREEN 4: REASON & DETAILS SCREEN ---------------- */}
       {currentScreen === 'REASON_DETAILS' && (
         <div className="space-y-8">
           <div className="text-center space-y-2">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block">
-              Step 3 of 3
+              Step 3 of 4
             </span>
             <h2 className="font-serif text-3xl font-medium text-[#111111]">
               Reason &amp; Additional Details
             </h2>
             <p className="text-xs text-[#5F5F5F]">
-              Provide specifics to ensure prompt courier pickup and quick processing.
+              Provide details to ensure accurate verification and rapid courier dispatch.
             </p>
           </div>
 
@@ -630,7 +754,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
             {/* Reason Select */}
             <div>
               <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
-                Primary Reason
+                Primary Reason for Return / Exchange
               </label>
               <select
                 value={reason}
@@ -678,7 +802,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                       >
                         {it.availableVariants.map(v => (
                           <option key={v.id} value={v.id} disabled={!v.inStock}>
-                            {v.title} {v.inStock ? `(In Stock - ${v.inventoryQuantity} units)` : '(Out of Stock)'}
+                            {v.title} {v.inStock ? `(In Stock - ${v.inventoryQuantity} available)` : '(Out of Stock)'}
                           </option>
                         ))}
                       </select>
@@ -691,18 +815,18 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
             {/* Customer Notes */}
             <div>
               <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
-                Customer Notes (Optional)
+                Customer Comments (Optional)
               </label>
               <textarea
                 rows={3}
-                placeholder="Any special notes or observations regarding your order..."
+                placeholder="Specific comments or feedback regarding your return or exchange..."
                 value={customerNotes}
                 onChange={e => setCustomerNotes(e.target.value)}
                 className="w-full ethnoir-input text-xs resize-none"
               />
             </div>
 
-            {/* Image Upload Area with Dashed Gray Border */}
+            {/* Photo Upload Area */}
             <div>
               <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
                 Product Photographs (Optional / Recommended)
@@ -750,12 +874,6 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                 </div>
               )}
             </div>
-
-            {submitError && (
-              <div className="p-3.5 border border-[#111111] bg-[#FAFAFA] text-xs text-[#111111]">
-                {submitError}
-              </div>
-            )}
           </div>
 
           {/* Action Row */}
@@ -771,21 +889,239 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
 
             <button
               type="button"
-              disabled={isSubmitting}
-              onClick={handleSubmitRequest}
+              onClick={handleProceedToPickup}
               className="ethnoir-btn-primary flex items-center space-x-2"
             >
+              <span>Confirm Pickup Address</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- SCREEN 5: ADDRESS & PICKUP CONFIRMATION ---------------- */}
+      {currentScreen === 'PICKUP_CONFIRMATION' && order && (
+        <div className="space-y-8">
+          <div className="text-center space-y-2">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block">
+              Step 4 of 4
+            </span>
+            <h2 className="font-serif text-3xl font-medium text-[#111111]">
+              Address &amp; Pickup Confirmation
+            </h2>
+            <p className="text-xs text-[#5F5F5F]">
+              Review your reverse pickup address and confirm the return summary before submitting.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Address Edit Form */}
+            <div className="md:col-span-2 space-y-5 border border-[#E6E6E6] p-6 bg-white rounded-sm">
+              <div className="flex items-center space-x-2 pb-3 border-b border-[#E6E6E6]">
+                <MapPin className="w-4 h-4 text-[#111111]" />
+                <h3 className="text-xs font-semibold tracking-wider uppercase text-[#111111]">
+                  Doorstep Courier Pickup Location
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    Contact Person Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={pickupAddress.name}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    Contact Mobile Number *
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="10-digit Indian phone"
+                    value={pickupAddress.phone}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    Address Line 1 (Flat, House No, Street) *
+                  </label>
+                  <input
+                    type="text"
+                    value={pickupAddress.address1}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, address1: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    Address Line 2 (Landmark, Sector - Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={pickupAddress.address2 || ''}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, address2: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    City *
+                  </label>
+                  <input
+                    type="text"
+                    value={pickupAddress.city}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, city: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    State *
+                  </label>
+                  <input
+                    type="text"
+                    value={pickupAddress.state}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, state: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    PIN Code (6 digits) *
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="e.g. 394210"
+                    value={pickupAddress.pincode}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, pincode: e.target.value }))}
+                    className="w-full ethnoir-input text-xs font-mono"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#111111] mb-1">
+                    Email for Updates (Optional)
+                  </label>
+                  <input
+                    type="email"
+                    value={pickupAddress.email || ''}
+                    onChange={e => setPickupAddress(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full ethnoir-input text-xs"
+                  />
+                </div>
+              </div>
+
+              {addressValidationError && (
+                <div className="p-3 border border-[#111111] bg-[#FAFAFA] text-xs text-[#111111] flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 text-[#111111] flex-shrink-0" />
+                  <span>{addressValidationError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Final Order Review Summary */}
+            <div className="border border-[#E6E6E6] p-6 bg-[#FAFAFA] rounded-sm space-y-4 text-xs">
+              <h3 className="font-serif text-base font-semibold text-[#111111] pb-2 border-b border-[#E6E6E6]">
+                Request Summary
+              </h3>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-[#5F5F5F]">
+                  <span>Order Reference</span>
+                  <span className="font-mono text-[#111111]">#{order.orderNumber}</span>
+                </div>
+                <div className="flex justify-between text-[#5F5F5F]">
+                  <span>Resolution Type</span>
+                  <span className="font-medium text-[#111111]">
+                    {requestType === 'REPLACEMENT' ? 'Replacement' : 'Return & Refund'}
+                  </span>
+                </div>
+                {requestType === 'RETURN_REFUND' && (
+                  <div className="flex justify-between text-[#5F5F5F]">
+                    <span>Estimated Refund</span>
+                    <span className="font-semibold text-[#111111]">
+                      ₹{totalRefundEstimate.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[#5F5F5F]">
+                  <span>Primary Reason</span>
+                  <span className="text-[#111111]">{reason.replace('_', ' ')}</span>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#E6E6E6] space-y-2">
+                <span className="text-[10px] uppercase tracking-wider text-[#5F5F5F] block font-semibold">
+                  Items to Return:
+                </span>
+                {Object.values(selectedItems).map(sel => {
+                  const it = order.items.find(i => i.id === sel.orderItemId);
+                  if (!it) return null;
+                  return (
+                    <div key={sel.orderItemId} className="text-[#111111] flex justify-between">
+                      <span className="truncate max-w-[160px]">{sel.quantity}x {it.title}</span>
+                      <span>₹{(it.price * sel.quantity).toLocaleString('en-IN')}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {submitError && (
+                <div className="p-3 border border-[#111111] bg-white text-xs text-[#111111]">
+                  {submitError}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Action Row */}
+          <div className="flex items-center justify-between pt-6 border-t border-[#E6E6E6]">
+            <button
+              type="button"
+              onClick={() => setCurrentScreen('REASON_DETAILS')}
+              className="text-xs uppercase tracking-[0.14em] text-[#5F5F5F] hover:text-[#111111] flex items-center space-x-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={validateAndSubmit}
+              className="ethnoir-btn-primary flex items-center space-x-2 pt-3 pb-3 px-8"
+            >
               {isSubmitting ? (
-                <span>Processing...</span>
+                <span>Registering Request...</span>
               ) : (
-                <span>Submit Request</span>
+                <span>Submit Return Request</span>
               )}
             </button>
           </div>
         </div>
       )}
 
-      {/* ---------------- SCREEN 5: CONFIRMATION SCREEN ---------------- */}
+      {/* ---------------- SCREEN 6: CONFIRMATION SCREEN ---------------- */}
       {currentScreen === 'CONFIRMATION' && (
         <div className="space-y-10 text-center max-w-lg mx-auto py-8">
           <div className="w-12 h-12 border border-[#111111] flex items-center justify-center mx-auto rounded-sm">
@@ -800,7 +1136,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
               Your Request is Confirmed
             </h2>
             <p className="text-xs text-[#5F5F5F] leading-relaxed">
-              We have generated your return case and notified our fulfillment team. A confirmation email has been dispatched.
+              We have generated your return case and notified our fulfillment team. A confirmation notification has been sent.
             </p>
           </div>
 
@@ -813,11 +1149,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
               {createdRequestNumber}
             </div>
             <p className="text-[11px] text-[#8E8E8E] pt-1">
-              Please quote this reference number in all future correspondence.
+              Please quote this reference number in all future client correspondence.
             </p>
           </div>
 
-          {/* Status Timeline with Thin Black Line */}
+          {/* Status Timeline */}
           <div className="pt-6 border-t border-[#E6E6E6]">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[#5F5F5F] block mb-6 font-medium">
               Next Milestones
@@ -828,7 +1164,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                 { title: 'Submitted', active: true },
                 { title: 'Review', active: false },
                 { title: 'Pickup', active: false },
-                { title: 'Complete', active: false },
+                { title: 'Completed', active: false },
               ].map((step, idx) => (
                 <div key={idx} className="relative z-10 flex flex-col items-center bg-white px-2">
                   <div
@@ -849,7 +1185,7 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
             <button
               onClick={() => {
                 if (createdRequestNumber) {
-                  onViewRequest(createdRequestNumber);
+                  onViewRequest(createdRequestNumber, emailOrPhone);
                 }
               }}
               className="ethnoir-btn-primary"
