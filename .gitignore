@@ -1,7 +1,47 @@
+﻿# Dependencies
 node_modules
+/.pnp
+.pnp.js
+
+# Production build artifacts
+dist
+dist-ssr
+*.local
+coverage
+
+# Environment files with secrets (prevent accidental commit of any env file except .env.example)
 .env
 .env.*
 !.env.example
-dist
+
+# Local databases and SQLite files
+dev.db
+dev.db-journal
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/*.db
+prisma/*.db-journal
+
+# Customer file uploads
 uploads/*
 !uploads/.gitkeep
+
+# Logs and system artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+
+# IDE and temporary files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
