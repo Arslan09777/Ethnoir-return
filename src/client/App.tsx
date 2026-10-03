@@ -1,22 +1,57 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar.js';
 import { CustomerPortal } from './components/CustomerPortal.js';
 import { RequestTracker } from './components/RequestTracker.js';
 import { AdminDashboard } from './components/AdminDashboard.js';
 import { AdminSettings } from './components/AdminSettings.js';
-import { DiagnosticsModal } from './components/DiagnosticsModal.js';
+import { supabase } from './supabase.js';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'customer' | 'track' | 'admin' | 'settings'>('customer');
+  const getTabFromLocation = (): 'customer' | 'track' | 'admin' | 'settings' => {
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+
+    if (path.includes('secure-admin-ethnoir') || hash.includes('secure-admin-ethnoir')) {
+      return 'admin';
+    }
+    if (path.includes('track') || hash.includes('track')) {
+      return 'track';
+    }
+    return 'customer';
+  };
+
+  const [activeTab, setActiveTab] = useState<'customer' | 'track' | 'admin' | 'settings'>(getTabFromLocation);
   const [trackingRequestNumber, setTrackingRequestNumber] = useState<string | null>(null);
   const [trackingContact, setTrackingContact] = useState<string | null>(null);
-  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+
+  // Sync tab with URL history
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setActiveTab(getTabFromLocation());
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    window.addEventListener('hashchange', handleLocationChange);
+
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.removeEventListener('hashchange', handleLocationChange);
+    };
+  }, []);
 
   const handleViewRequest = (requestNumber: string, contact: string) => {
     setTrackingRequestNumber(requestNumber);
     setTrackingContact(contact);
     setActiveTab('track');
+    window.history.pushState(null, '', '/track');
+  };
+
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut();
+    await fetch('/api/admin/auth/logout', { method: 'POST' });
+    setIsAdminLoggedIn(false);
+    setActiveTab('admin');
   };
 
   return (
@@ -25,8 +60,8 @@ export function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
         isAdminLoggedIn={isAdminLoggedIn}
+        onLogout={handleAdminLogout}
       />
 
       {/* Main Content Area */}
@@ -55,10 +90,10 @@ export function App() {
         )}
       </main>
 
-      {/* Luxury Editorial Editorial Footer */}
+      {/* Luxury Minimal Fashion Footer */}
       <footer className="border-t border-[#E6E6E6] bg-[#FFFFFF] py-12 px-4 sm:px-6 text-center text-xs space-y-4">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-[#5F5F5F]">
-          <span className="font-serif text-lg tracking-[0.2em] uppercase font-bold text-[#111111]">
+          <span className="font-serif text-lg tracking-[0.25em] uppercase font-bold text-[#111111]">
             ETHNOIR
           </span>
           <div className="flex items-center space-x-6 text-[10px] uppercase tracking-[0.16em]">
@@ -66,21 +101,20 @@ export function App() {
             <span>Doorstep Courier Pickup</span>
             <span>Complimentary Exchange</span>
           </div>
-          <span className="text-[11px] text-[#8E8E8E]">
-            ethnoirindia.myshopify.com
-          </span>
+          <a
+            href="https://ethnoir.in"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-[#111111] hover:underline tracking-wider"
+          >
+            https://ethnoir.in
+          </a>
         </div>
 
         <p className="text-[11px] text-[#8E8E8E] pt-4 border-t border-[#F0F0F0] max-w-2xl mx-auto">
-          © {new Date().getFullYear()} Ethnoir India. Private Client Services &amp; Automated Order Lifecycle Management.
+          © {new Date().getFullYear()} ETHNOIR. All rights reserved.
         </p>
       </footer>
-
-      {/* Diagnostics Modal */}
-      <DiagnosticsModal
-        isOpen={isDiagnosticsOpen}
-        onClose={() => setIsDiagnosticsOpen(false)}
-      />
     </div>
   );
 }

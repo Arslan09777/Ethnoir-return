@@ -88,6 +88,7 @@ export interface ReturnRequestDetail {
   customerNotes?: string;
   rejectionReason?: string;
   internalNotes?: string;
+  pickupAddressJson?: string;
   refundMethod?: string;
   refundAmount?: number;
   refundStatus?: string;

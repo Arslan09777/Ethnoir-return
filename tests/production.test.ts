@@ -29,7 +29,7 @@ describe('Production Security & Webhook Validation', () => {
   it('generates and verifies secure Admin JWT session tokens', () => {
     const payload = {
       adminId: 'admin_123',
-      email: 'admin@ethnoirindia.com',
+      email: 'admin@example.com',
       role: 'ADMIN'
     };
 

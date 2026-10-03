@@ -14,21 +14,58 @@ import adminRoutes from './routes/admin.js';
 import uploadRoutes from './routes/upload.js';
 import webhookRoutes from './routes/webhooks.js';
 
+import { generalApiLimiter } from './middleware/rateLimit.js';
+
 const app = express();
 
 // 1. Security Headers
 app.use(helmet({
   contentSecurityPolicy: false, // Allows flexible media rendering in modern dynamic dashboard
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  dnsPrefetchControl: { allow: false },
+  frameguard: { action: 'sameorigin' },
+  hidePoweredBy: true,
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  ieNoOpen: true,
+  noSniff: true,
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  xssFilter: true
 }));
 
-// 2. CORS
+// 2. CORS - Restrict origins in production
+const allowedOrigins = [
+  'https://ethnoir.in',
+  'https://www.ethnoir.in',
+  config.APP_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: true,
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow non-browser requests (server-to-server, webhooks, tools) or same-origin
+    if (!origin) return callback(null, true);
+
+    // In local development or testing, permit localhost and loopback origins
+    if (process.env.NODE_ENV !== 'production') {
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('CORS_ORIGIN_NOT_ALLOWED'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
-// 3. Cookie Parser
+// 3. Rate Limiting for all API routes
+app.use('/api', generalApiLimiter);
+
+// 4. Cookie Parser
 app.use(cookieParser());
 
 // 4. Capture Raw Body for Webhook Signature Verification
@@ -80,11 +117,25 @@ if (fs.existsSync(clientDist)) {
 
 // 8. Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('[Unhandled Global Error]:', err);
-  const status = err.status || 500;
+  if (err.message === 'CORS_ORIGIN_NOT_ALLOWED') {
+    return res.status(403).json({
+      error: 'FORBIDDEN',
+      message: 'Access denied by CORS security policy.'
+    });
+  }
+
+  console.error('[Unhandled Global Error]:', err?.message || err);
+  const status = typeof err.status === 'number' && err.status >= 400 && err.status <= 599 ? err.status : 500;
+
+  // Never leak internal stack traces or internal DB details to clients in production
+  const isProd = process.env.NODE_ENV === 'production';
+  const message = isProd && status === 500
+    ? 'An unexpected error occurred. Please contact support.'
+    : (err.message || 'An unexpected error occurred.');
+
   res.status(status).json({
-    error: 'SERVER_ERROR',
-    message: err.message || 'An unexpected error occurred. Please contact support.'
+    error: err.code || 'SERVER_ERROR',
+    message
   });
 });
 
@@ -101,7 +152,7 @@ async function bootstrap() {
       store = await prisma.store.create({
         data: {
           shopDomain: config.SHOPIFY_SHOP,
-          shopName: 'Ethnoir India',
+          shopName: 'ETHNOIR',
           apiVersion: config.SHOPIFY_API_VERSION,
           settings: {
             create: {
@@ -119,30 +170,13 @@ async function bootstrap() {
       console.log(`[Bootstrap] Initialized store: ${config.SHOPIFY_SHOP}`);
     }
 
-    // 2. Ensure initial admin user exists
-    const adminCount = await prisma.adminUser.count();
-    if (adminCount === 0) {
-      const passwordHash = await bcrypt.hash(config.ADMIN_DEFAULT_PASSWORD, 10);
-      await prisma.adminUser.create({
-        data: {
-          email: config.ADMIN_DEFAULT_EMAIL,
-          passwordHash,
-          name: 'Store Administrator',
-          role: 'ADMIN'
-        }
-      });
-      console.log(`[Bootstrap] Created initial admin: ${config.ADMIN_DEFAULT_EMAIL}`);
-    }
-
     // Start listening
     const port = config.PORT;
     app.listen(port, () => {
       console.log(`\n======================================================`);
-      console.log(`🚀 Ethnoir Return & Replacement Server running on :${port}`);
-      console.log(`🏪 Store: ${config.SHOPIFY_SHOP} (GraphQL API: ${config.SHOPIFY_API_VERSION})`);
-      console.log(`📦 Shiprocket Base: ${config.SHIPROCKET_API_BASE}`);
-      console.log(`Mode: PRODUCTION (Shopify GraphQL 2026-07 + Shiprocket Logistics)`);
-      console.log(`Default Admin: ${config.ADMIN_DEFAULT_EMAIL}`);
+      console.log(`🚀 ETHNOIR Return & Replacement Server running on :${port}`);
+      console.log(`🏪 Store: ${config.SHOPIFY_SHOP}`);
+      console.log(`🔐 Admin Auth: Supabase Auth (Active)`);
       console.log(`======================================================\n`);
     });
   } catch (err: any) {

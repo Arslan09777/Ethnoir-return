@@ -11,61 +11,53 @@ import { emailService } from '../services/email.js';
 
 const router = Router();
 
-// Validation Schemas
-const AdminLoginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6)
-});
-
 /**
- * 1. Admin Login
+ * 1. Admin Session Setup / Validation
+ * Validates Supabase Auth access token and issues HTTP-only cookie
  */
-router.post('/auth/login', async (req: Request, res: Response) => {
+router.post('/auth/session', async (req: Request, res: Response) => {
   try {
-    const parsed = AdminLoginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: 'VALIDATION_FAILED', message: parsed.error.issues[0].message });
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'TOKEN_REQUIRED', message: 'Authentication token is required.' });
     }
 
-    const { email, password } = parsed.data;
-
-    let admin = await prisma.adminUser.findUnique({ where: { email } });
-
-    // Seed default admin if table is empty
-    if (!admin) {
-      const adminCount = await prisma.adminUser.count();
-      if (adminCount === 0 && email.toLowerCase() === config.ADMIN_DEFAULT_EMAIL.toLowerCase()) {
-        const hash = await bcrypt.hash(config.ADMIN_DEFAULT_PASSWORD, 10);
-        admin = await prisma.adminUser.create({
-          data: {
-            email: config.ADMIN_DEFAULT_EMAIL,
-            passwordHash: hash,
-            name: 'Store Administrator',
-            role: 'ADMIN'
-          }
-        });
-      }
+    if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
+      return res.status(500).json({ error: 'SERVER_CONFIG_ERROR', message: 'Authentication service not configured.' });
     }
 
-    if (!admin || !admin.isActive) {
-      return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
-    }
-
-    const isMatch = await bcrypt.compare(password, admin.passwordHash);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
-    }
-
-    await prisma.adminUser.update({
-      where: { id: admin.id },
-      data: { lastLoginAt: new Date() }
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } }
     });
 
-    const token = jwt.sign(
-      { adminId: admin.id, email: admin.email, role: admin.role },
-      config.SESSION_SECRET,
-      { expiresIn: '7d' }
-    );
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData?.user) {
+      return res.status(401).json({ error: 'INVALID_TOKEN', message: 'Invalid or expired session token.' });
+    }
+
+    const authUser = authData.user;
+
+    // Verify against admin_users table under RLS
+    const { data: adminRecord, error: dbError } = await supabase
+      .from('admin_users')
+      .select('id, user_id, email, role, is_active')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+
+    if (dbError || !adminRecord) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: 'Access denied. Account is not registered as an administrator.' });
+    }
+
+    if (!adminRecord.is_active) {
+      return res.status(403).json({ error: 'ACCOUNT_INACTIVE', message: 'Access denied. Administrator account is inactive.' });
+    }
+
+    const normalizedRole = (adminRecord.role || '').toLowerCase();
+    if (normalizedRole !== 'admin' && normalizedRole !== 'manager') {
+      return res.status(403).json({ error: 'INSUFFICIENT_PERMISSIONS', message: 'Access denied. Administrator role required.' });
+    }
 
     // Set secure HTTP-only cookie
     res.cookie('admin_token', token, {
@@ -77,17 +69,15 @@ router.post('/auth/login', async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      token,
       user: {
-        id: admin.id,
-        email: admin.email,
-        name: admin.name,
-        role: admin.role
+        userId: authUser.id,
+        email: adminRecord.email || authUser.email,
+        role: adminRecord.role
       }
     });
   } catch (err: any) {
-    console.error('[Admin Login Error]:', err);
-    return res.status(500).json({ error: 'SERVER_ERROR', message: 'Login failed. Please try again.' });
+    console.error('[Admin Session Error]:', err.message);
+    return res.status(500).json({ error: 'SERVER_ERROR', message: 'Session initialization failed.' });
   }
 });
 
@@ -103,11 +93,14 @@ router.post('/auth/logout', (_req: Request, res: Response) => {
  * 3. Current Admin Profile
  */
 router.get('/auth/me', requireAdminAuth, async (req: Request, res: Response) => {
-  const user = await prisma.adminUser.findUnique({
-    where: { id: req.admin!.adminId },
-    select: { id: true, email: true, name: true, role: true, lastLoginAt: true }
+  return res.json({
+    success: true,
+    user: {
+      userId: req.admin!.userId,
+      email: req.admin!.email,
+      role: req.admin!.role
+    }
   });
-  return res.json({ success: true, user });
 });
 
 /**
@@ -243,7 +236,7 @@ router.get('/requests', requireAdminAuth, async (req: Request, res: Response) =>
  */
 router.get('/requests/:id', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const returnRequest = await prisma.returnRequest.findUnique({
       where: { id },
@@ -287,7 +280,7 @@ router.get('/requests/:id', requireAdminAuth, async (req: Request, res: Response
  */
 router.post('/requests/:id/approve', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -367,7 +360,7 @@ router.post('/requests/:id/approve', requireAdminAuth, async (req: Request, res:
  */
 router.post('/requests/:id/reject', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { rejectionReason } = req.body;
 
     if (!rejectionReason || rejectionReason.trim().length === 0) {
@@ -422,7 +415,7 @@ router.post('/requests/:id/reject', requireAdminAuth, async (req: Request, res: 
  */
 router.post('/requests/:id/schedule-pickup', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -536,7 +529,7 @@ router.post('/requests/:id/schedule-pickup', requireAdminAuth, async (req: Reque
  */
 router.post('/requests/:id/retry-pickup', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -628,7 +621,7 @@ router.post('/requests/:id/retry-pickup', requireAdminAuth, async (req: Request,
  */
 router.post('/requests/:id/mark-received', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -676,7 +669,7 @@ router.post('/requests/:id/mark-received', requireAdminAuth, async (req: Request
  */
 router.post('/requests/:id/process-refund', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { method, amount, notes } = req.body;
 
     const request = await prisma.returnRequest.findUnique({
@@ -777,7 +770,7 @@ router.post('/requests/:id/process-refund', requireAdminAuth, async (req: Reques
  */
 router.post('/requests/:id/create-replacement', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -897,7 +890,7 @@ router.post('/requests/:id/create-replacement', requireAdminAuth, async (req: Re
  */
 router.post('/requests/:id/tracking', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { courierName, awbNumber, trackingUrl, shipmentType = 'REVERSE_PICKUP' } = req.body;
 
     if (!courierName || !awbNumber) {
@@ -955,7 +948,7 @@ router.post('/requests/:id/tracking', requireAdminAuth, async (req: Request, res
  */
 router.post('/requests/:id/close', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const request = await prisma.returnRequest.findUnique({
       where: { id },
@@ -1002,7 +995,7 @@ router.post('/requests/:id/close', requireAdminAuth, async (req: Request, res: R
  */
 router.post('/requests/:id/notes', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { notes } = req.body;
 
     const updated = await prisma.returnRequest.update({
@@ -1037,8 +1030,8 @@ router.get('/settings', requireAdminAuth, async (_req: Request, res: Response) =
       if (!store) {
         store = await prisma.store.create({
           data: {
-            shopDomain: 'ethnoirindia.myshopify.com',
-            shopName: 'Ethnoir India'
+            shopDomain: config.SHOPIFY_SHOP,
+            shopName: 'ETHNOIR'
           }
         });
       }

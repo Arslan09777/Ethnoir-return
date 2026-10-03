@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Check, RefreshCw } from 'lucide-react';
+import { supabase } from '../supabase.js';
 
 interface AdminSettingsProps {
   onBackToDashboard: () => void;
@@ -21,9 +22,18 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onBackToDashboard 
     fetchSettings();
   }, []);
 
+  const getHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return {
+      'Content-Type': 'application/json',
+      ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {})
+    };
+  };
+
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/admin/settings');
+      const headers = await getHeaders();
+      const res = await fetch('/api/admin/settings', { headers });
       if (res.ok) {
         const data = await res.json();
         const s = data.settings;
@@ -47,9 +57,10 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onBackToDashboard 
     setMessage(null);
 
     try {
+      const headers = await getHeaders();
       const res = await fetch('/api/admin/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           returnWindowDays,
           autoApproveReturns,
@@ -70,6 +81,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ onBackToDashboard 
       setIsSaving(false);
     }
   };
+
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 space-y-8 text-left bg-white text-[#111111]">

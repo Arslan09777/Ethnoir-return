@@ -102,7 +102,7 @@ export const RequestTracker: React.FC<RequestTrackerProps> = ({
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 sm:py-16 space-y-10">
       <div className="text-center space-y-3">
         <span className="text-[11px] font-medium tracking-[0.25em] uppercase text-[#5F5F5F] block">
-          Client Services
+          ETHNOIR
         </span>
         <h1 className="font-serif text-3xl sm:text-5xl font-medium text-[#111111] tracking-tight">
           Track Request

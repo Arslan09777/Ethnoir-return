@@ -348,15 +348,11 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
           {/* Header */}
           <div className="text-center space-y-4 max-w-xl mx-auto">
             <span className="text-[11px] font-medium tracking-[0.25em] uppercase text-[#5F5F5F] block">
-              Client Services
+              ETHNOIR
             </span>
             <h1 className="font-serif text-3xl sm:text-5xl font-medium text-[#111111] tracking-tight">
               Returns &amp; Replacements
             </h1>
-            <p className="text-sm text-[#5F5F5F] leading-relaxed">
-              We offer complimentary doorstep pickup and size exchanges within 7 days of delivery.
-              Please provide your order details to begin.
-            </p>
           </div>
 
           {/* Policy Banner */}
@@ -379,19 +375,14 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({ onViewRequest })
                 <label className="block text-[11px] font-semibold tracking-[0.14em] uppercase text-[#111111] mb-2">
                   Order Number
                 </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-[#8E8E8E] text-sm">
-                    #
-                  </span>
-                  <input
-                    type="text"
-                    placeholder="e.g. ET-1124 or 1124"
-                    value={orderNumber}
-                    onChange={e => setOrderNumber(e.target.value)}
-                    className="w-full ethnoir-input pl-8"
-                    required
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. ET-1124 or 1124"
+                  value={orderNumber}
+                  onChange={e => setOrderNumber(e.target.value)}
+                  className="w-full ethnoir-input"
+                  required
+                />
                 <span className="text-[10px] text-[#8E8E8E] mt-1 block">
                   Found on your order confirmation email or invoice
                 </span>

@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: ethnoir-returns
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx prisma generate --schema=prisma/schema.postgresql.prisma && npm run build:client
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: DATABASE_URL
+        sync: false
+      - key: SHOPIFY_SHOP
+        sync: false
+      - key: SHOPIFY_API_VERSION
+        sync: false
+      - key: SHOPIFY_CLIENT_ID
+        sync: false
+      - key: SHOPIFY_CLIENT_SECRET
+        sync: false
+      - key: SHOPIFY_ADMIN_ACCESS_TOKEN
+        sync: false
+      - key: SHIPROCKET_API_BASE
+        value: https://apiv2.shiprocket.in/v1/external
+      - key: SHIPROCKET_EMAIL
+        sync: false
+      - key: SHIPROCKET_PASSWORD
+        sync: false
+      - key: SHIPROCKET_PICKUP_LOCATION_NAME
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: RETURN_WINDOW_DAYS
+        value: "7"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "5"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

@@ -28,10 +28,13 @@ const storage = multer.diskStorage({
 // File filter for images only
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/jpg'];
-  if (allowedMimeTypes.includes(file.mimetype.toLowerCase())) {
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic'];
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (allowedMimeTypes.includes(file.mimetype.toLowerCase()) && allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('INVALID_FILE_TYPE: Only JPEG, PNG, WEBP, and HEIC images are allowed.'));
+    cb(new Error('INVALID_FILE_TYPE: Only JPEG, PNG, WEBP, and HEIC image files are allowed.'));
   }
 };
 

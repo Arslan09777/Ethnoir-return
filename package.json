@@ -13,12 +13,12 @@
     "start": "tsx src/server/index.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:seed": "tsx src/server/prisma/seed.ts",
     "prisma:pg:push": "prisma db push --schema=prisma/schema.postgresql.prisma",
     "test": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",
+    "@supabase/supabase-js": "^2.117.2",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
@@ -43,6 +43,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.3.0",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

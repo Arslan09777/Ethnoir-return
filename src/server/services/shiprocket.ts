@@ -184,7 +184,7 @@ export class ShiprocketService {
       pickup_city: params.customerAddress.city,
       pickup_state: params.customerAddress.state,
       pickup_pincode: params.customerAddress.pincode,
-      pickup_email: params.customerAddress.email || 'care@ethnoirindia.com',
+      pickup_email: params.customerAddress.email || config.SHIPROCKET_EMAIL || 'care@ethnoir.in',
       pickup_phone: params.customerAddress.phone,
       pickup_location: pickupLocation, // Destination warehouse nickname in Shiprocket
       order_items: params.items.map(item => ({
@@ -277,7 +277,7 @@ export class ShiprocketService {
       billing_pincode: params.customerAddress.pincode,
       billing_state: params.customerAddress.state,
       billing_country: 'India',
-      billing_email: params.customerAddress.email || 'care@ethnoirindia.com',
+      billing_email: params.customerAddress.email || config.SHIPROCKET_EMAIL || 'care@ethnoir.in',
       billing_phone: params.customerAddress.phone,
       shipping_is_billing: true,
       order_items: params.items.map(item => ({

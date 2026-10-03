@@ -1,6 +1,6 @@
-# Ethnoir India - Custom Shopify Return & Replacement System
+# ETHNOIR - Custom Shopify Return & Replacement System
 
-A custom, end-to-end Return & Replacement web application designed for **Ethnoir India** (`ethnoirindia.myshopify.com`), directly integrated with **Shopify GraphQL Admin API (2026-07)** and **Shiprocket Logistics REST API**, without relying on any paid Shopify return-management apps.
+A custom, end-to-end Return & Replacement web application designed for **ETHNOIR** ([https://ethnoir.in](https://ethnoir.in)), directly integrated with **Shopify GraphQL Admin API (2026-07)** and **Shiprocket Logistics REST API**, without relying on any paid Shopify return-management apps.
 
 ---
 
@@ -24,7 +24,7 @@ A custom, end-to-end Return & Replacement web application designed for **Ethnoir
   `Submitted` ➔ `Approved` ➔ `Pickup Scheduled` ➔ `Picked Up` ➔ `Received at Warehouse` ➔ `Refund Processed / Replacement Shipped` ➔ `Completed`
 
 ### 🛡️ Merchant Admin Dashboard
-- **Protected Access**: Secure HTTP-only cookie JWT session authentication (`admin@ethnoirindia.com`).
+- **Protected Access**: Supabase Auth with Row Level Security (RLS) on `admin_users` table (`/secure-admin-ethnoir`).
 - **Real-Time KPI Cards**:
   - New Requests
   - Approved Requests
@@ -54,10 +54,7 @@ A custom, end-to-end Return & Replacement web application designed for **Ethnoir
   - Default refund method selector.
   - Shiprocket warehouse pickup location nickname selector.
   - Customer-facing return policy editor.
-- **Integration Diagnostics Modal**:
-  - Tests live connectivity to Shopify GraphQL Admin API and Shiprocket.
-  - Identifies whether the app is running in **LIVE SHOPIFY** or **DEMO MOCK MODE**.
-  - Highlights account-specific Shiprocket requirements.
+
 
 ---
 
@@ -131,10 +128,8 @@ npm start
 ```
 Access the application in your browser:
 - **Customer Portal**: [http://localhost:5000/](http://localhost:5000/)
-- **Admin Portal**: [http://localhost:5000/](http://localhost:5000/) (Click "Admin Portal" in navbar)
-  - Default Admin Email: `admin@ethnoirindia.com`
-  - Default Admin Password: `Admin@Ethnoir2026!`
-- **Health Check & Diagnostics**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
+- **Admin Portal**: [http://localhost:5000/secure-admin-ethnoir](http://localhost:5000/secure-admin-ethnoir) (Requires authorized Supabase user with active role in `admin_users`)
+- **Health Check**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
 
 ---
 

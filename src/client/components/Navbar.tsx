@@ -1,18 +1,17 @@
 import React from 'react';
-import { SlidersHorizontal } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'customer' | 'track' | 'admin' | 'settings';
   setActiveTab: (tab: 'customer' | 'track' | 'admin' | 'settings') => void;
-  onOpenDiagnostics: () => void;
   isAdminLoggedIn: boolean;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
-  onOpenDiagnostics,
   isAdminLoggedIn,
+  onLogout
 }) => {
   const isAdminView = activeTab === 'admin' || activeTab === 'settings';
 
@@ -29,7 +28,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Brand Wordmark */}
           <div
             className="cursor-pointer group flex flex-col items-start"
-            onClick={() => setActiveTab('customer')}
+            onClick={() => {
+              if (isAdminView) {
+                setActiveTab('admin');
+              } else {
+                setActiveTab('customer');
+                window.location.hash = '';
+              }
+            }}
           >
             <span
               className={`font-serif text-2xl sm:text-3xl font-bold tracking-[0.25em] uppercase transition-opacity ${
@@ -43,65 +49,80 @@ export const Navbar: React.FC<NavbarProps> = ({
                 isAdminView ? 'text-neutral-400' : 'text-[#5F5F5F]'
               }`}
             >
-              {isAdminView ? 'Merchant Dashboard' : 'Client Services • Returns & Exchanges'}
+              {isAdminView ? 'Management Console' : 'Returns & Replacements'}
             </span>
           </div>
 
           {/* Navigation Links */}
           <nav className="flex items-center space-x-1 sm:space-x-6">
-            <button
-              onClick={() => setActiveTab('customer')}
-              className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
-                activeTab === 'customer'
-                  ? isAdminView
-                    ? 'border-white text-white'
-                    : 'border-[#111111] text-[#111111] font-semibold'
-                  : isAdminView
-                  ? 'border-transparent text-neutral-400 hover:text-white'
-                  : 'border-transparent text-[#5F5F5F] hover:text-[#111111]'
-              }`}
-            >
-              Request Return
-            </button>
+            {!isAdminView ? (
+              // Customer-Facing Navigation (No Admin link, no diagnostics icon)
+              <>
+                <button
+                  onClick={() => {
+                    setActiveTab('customer');
+                    window.history.pushState(null, '', '/');
+                  }}
+                  className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
+                    activeTab === 'customer'
+                      ? 'border-[#111111] text-[#111111] font-semibold'
+                      : 'border-transparent text-[#5F5F5F] hover:text-[#111111]'
+                  }`}
+                >
+                  Request Return
+                </button>
 
-            <button
-              onClick={() => setActiveTab('track')}
-              className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
-                activeTab === 'track'
-                  ? isAdminView
-                    ? 'border-white text-white'
-                    : 'border-[#111111] text-[#111111] font-semibold'
-                  : isAdminView
-                  ? 'border-transparent text-neutral-400 hover:text-white'
-                  : 'border-transparent text-[#5F5F5F] hover:text-[#111111]'
-              }`}
-            >
-              Track Request
-            </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('track');
+                    window.history.pushState(null, '', '/track');
+                  }}
+                  className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
+                    activeTab === 'track'
+                      ? 'border-[#111111] text-[#111111] font-semibold'
+                      : 'border-transparent text-[#5F5F5F] hover:text-[#111111]'
+                  }`}
+                >
+                  Track Request
+                </button>
+              </>
+            ) : (
+              // Admin-View Navigation (Only when navigating to secure admin route)
+              isAdminLoggedIn && (
+                <>
+                  <button
+                    onClick={() => setActiveTab('admin')}
+                    className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
+                      activeTab === 'admin'
+                        ? 'border-white text-white font-semibold'
+                        : 'border-transparent text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Console
+                  </button>
 
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
-                isAdminView
-                  ? 'border-white text-white font-semibold'
-                  : 'border-transparent text-[#5F5F5F] hover:text-[#111111]'
-              }`}
-            >
-              Admin
-            </button>
+                  <button
+                    onClick={() => setActiveTab('settings')}
+                    className={`text-xs uppercase tracking-[0.14em] font-medium py-2 px-1 transition-all border-b-2 ${
+                      activeTab === 'settings'
+                        ? 'border-white text-white font-semibold'
+                        : 'border-transparent text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Settings
+                  </button>
 
-            {/* Subtle Diagnostics Icon */}
-            <button
-              onClick={onOpenDiagnostics}
-              title="Integration Status & Diagnostics"
-              className={`p-2 rounded transition-colors ${
-                isAdminView
-                  ? 'text-neutral-400 hover:text-white hover:bg-neutral-800'
-                  : 'text-[#8E8E8E] hover:text-[#111111] hover:bg-[#F8F8F8]'
-              }`}
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
+                  {onLogout && (
+                    <button
+                      onClick={onLogout}
+                      className="text-xs uppercase tracking-[0.14em] font-medium py-2 px-2 text-neutral-400 hover:text-white transition-colors"
+                    >
+                      Sign Out
+                    </button>
+                  )}
+                </>
+              )
+            )}
           </nav>
         </div>
       </div>

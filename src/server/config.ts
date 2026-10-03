@@ -34,9 +34,10 @@ export const config = {
   RETURN_WINDOW_DAYS: parseInt(process.env.RETURN_WINDOW_DAYS || '7', 10),
   MAX_UPLOAD_SIZE_MB: parseInt(process.env.MAX_UPLOAD_SIZE_MB || '5', 10),
 
-  // Default Admin
-  ADMIN_DEFAULT_EMAIL: process.env.ADMIN_DEFAULT_EMAIL || 'admin@ethnoirindia.com',
-  ADMIN_DEFAULT_PASSWORD: process.env.ADMIN_DEFAULT_PASSWORD || 'Admin@Ethnoir2026!',
+  // Supabase Configuration
+  SUPABASE_URL: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://dtcuijwuicsfnlzdatsm.supabase.co',
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '',
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
 
   // Helper flags
   isShopifyConfigured: (): boolean => {

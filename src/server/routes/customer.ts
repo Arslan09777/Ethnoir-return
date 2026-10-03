@@ -6,6 +6,8 @@ import { checkOrderReturnEligibility, calculateMaxRefund } from '../services/eli
 import { emailService } from '../services/email.js';
 import { orderLookupLimiter } from '../middleware/rateLimit.js';
 
+import { config } from '../config.js';
+
 const router = Router();
 
 // Validation Schemas
@@ -78,15 +80,15 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
 
     // 2. Fetch or create store in local DB
     let store = await prisma.store.findFirst({
-      where: { shopDomain: 'ethnoirindia.myshopify.com' },
+      where: { shopDomain: config.SHOPIFY_SHOP },
       include: { settings: true }
     });
 
     if (!store) {
       store = await prisma.store.create({
         data: {
-          shopDomain: 'ethnoirindia.myshopify.com',
-          shopName: 'Ethnoir India',
+          shopDomain: config.SHOPIFY_SHOP,
+          shopName: 'ETHNOIR',
           settings: {
             create: {
               returnWindowDays: 7,
@@ -482,7 +484,7 @@ router.post('/returns/submit', async (req: Request, res: Response) => {
  */
 router.all('/returns/track/:requestNumber', async (req: Request, res: Response) => {
   try {
-    const { requestNumber } = req.params;
+    const requestNumber = String(req.params.requestNumber || '');
     const contact = ((req.query.contact as string) || req.body?.contact || '').trim().toLowerCase();
 
     if (!contact) {

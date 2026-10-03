@@ -8,9 +8,13 @@ import {
   RotateCcw,
   RefreshCw,
   SlidersHorizontal,
-  ChevronRight
+  ChevronRight,
+  ShieldAlert,
+  Lock,
+  LogOut
 } from 'lucide-react';
 import { ReturnRequestSummary, ReturnRequestDetail } from '../types.js';
+import { supabase } from '../supabase.js';
 
 interface AdminDashboardProps {
   onOpenSettings: () => void;
@@ -23,7 +27,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   isAdminLoggedIn,
   setIsAdminLoggedIn
 }) => {
-  // Login State
+  // Supabase Auth & Authorization State
+  const [authStatus, setAuthStatus] = useState<'CHECKING' | 'LOGIN' | 'ACCESS_DENIED' | 'AUTHORIZED'>('CHECKING');
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string; role: string } | null>(null);
+  const [deniedReason, setDeniedReason] = useState<string | null>(null);
+
+  // Login Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -67,20 +76,124 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Internal note input
   const [internalNoteText, setInternalNoteText] = useState('');
 
-  // Check auth on mount
+  // Authenticated fetch wrapper attaching Bearer token
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const headers = new Headers(options.headers || {});
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+      setLoginError('Your session has expired. Please sign in again.');
+      setAuthStatus('LOGIN');
+      setIsAdminLoggedIn(false);
+      throw new Error('Session expired');
+    }
+    return res;
+  };
+
+  // Check auth and authorize against admin_users table
   useEffect(() => {
     checkAuth();
+
+    // Listen to Supabase auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setIsAdminLoggedIn(false);
+        setAuthStatus('LOGIN');
+        setCurrentUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const checkAuth = async () => {
-    try {
-      const res = await fetch('/api/admin/auth/me');
-      if (res.ok) {
-        setIsAdminLoggedIn(true);
-        fetchStats();
-        fetchRequests();
+  // Inactivity auto-logout (30 minutes of no user activity)
+  useEffect(() => {
+    let timeoutId: any;
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      if (isAdminLoggedIn) {
+        timeoutId = setTimeout(() => {
+          handleLogout();
+          setLoginError('Session timed out due to inactivity. Please sign in again.');
+        }, 30 * 60 * 1000);
       }
-    } catch {
+    };
+
+    window.addEventListener('mousemove', resetTimer);
+    window.addEventListener('keydown', resetTimer);
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('mousemove', resetTimer);
+      window.removeEventListener('keydown', resetTimer);
+    };
+  }, [isAdminLoggedIn]);
+
+  const checkAuth = async () => {
+    setAuthStatus('CHECKING');
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.user) {
+        setAuthStatus('LOGIN');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      // Check admin_users authorization under RLS
+      const { data: adminRecord, error: dbError } = await supabase
+        .from('admin_users')
+        .select('user_id, email, role, is_active')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (dbError || !adminRecord) {
+        setDeniedReason(`The account (${session.user.email}) is not registered in the administrator directory.`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      if (!adminRecord.is_active) {
+        setDeniedReason(`The account (${session.user.email}) has been deactivated. Please contact the administrator.`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      const role = (adminRecord.role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'manager') {
+        setDeniedReason(`Access denied. Administrative role required (Current role: ${adminRecord.role}).`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      // Sync server session
+      await fetch('/api/admin/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: session.access_token })
+      });
+
+      setCurrentUser({
+        id: session.user.id,
+        email: adminRecord.email || session.user.email || '',
+        role: adminRecord.role
+      });
+      setAuthStatus('AUTHORIZED');
+      setIsAdminLoggedIn(true);
+      fetchStats();
+      fetchRequests();
+    } catch (err: any) {
+      console.error('[Admin Auth Check Error]:', err);
+      setAuthStatus('LOGIN');
       setIsAdminLoggedIn(false);
     }
   };
@@ -91,35 +204,83 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLoginError(null);
 
     try {
-      const res = await fetch('/api/admin/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || 'Login failed.');
+      if (error || !data?.user || !data?.session) {
+        throw new Error('Invalid email or password. Please verify your credentials.');
       }
 
+      // Verify authorization in admin_users table
+      const { data: adminRecord, error: dbError } = await supabase
+        .from('admin_users')
+        .select('user_id, email, role, is_active')
+        .eq('user_id', data.user.id)
+        .maybeSingle();
+
+      if (dbError || !adminRecord) {
+        setDeniedReason(`The account (${data.user.email}) is not authorized for administrative access.`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      if (!adminRecord.is_active) {
+        setDeniedReason(`The account (${data.user.email}) has been deactivated. Please contact the administrator.`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      const role = (adminRecord.role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'manager') {
+        setDeniedReason(`Access denied. Administrative role required (Current role: ${adminRecord.role}).`);
+        setAuthStatus('ACCESS_DENIED');
+        setIsAdminLoggedIn(false);
+        return;
+      }
+
+      // Sync server session cookie
+      await fetch('/api/admin/auth/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: data.session.access_token })
+      });
+
+      setCurrentUser({
+        id: data.user.id,
+        email: adminRecord.email || data.user.email || '',
+        role: adminRecord.role
+      });
+      setAuthStatus('AUTHORIZED');
       setIsAdminLoggedIn(true);
       fetchStats();
       fetchRequests();
     } catch (err: any) {
-      setLoginError(err.message);
+      setLoginError(err.message || 'Authentication failed. Please verify your credentials.');
     } finally {
       setIsLoggingIn(false);
     }
   };
 
   const handleLogout = async () => {
-    await fetch('/api/admin/auth/logout', { method: 'POST' });
-    setIsAdminLoggedIn(false);
+    try {
+      await supabase.auth.signOut();
+      await fetch('/api/admin/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsAdminLoggedIn(false);
+      setAuthStatus('LOGIN');
+      setCurrentUser(null);
+    }
   };
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('/api/admin/stats');
+      const res = await authFetch('/api/admin/stats');
       if (res.ok) {
         const data = await res.json();
         setStats(data.stats);
@@ -137,7 +298,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (typeFilter !== 'ALL') params.append('type', typeFilter);
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
 
-      const res = await fetch(`/api/admin/requests?${params.toString()}`);
+      const res = await authFetch(`/api/admin/requests?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setRequests(data.data);
@@ -162,7 +323,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${id}`);
+      const res = await authFetch(`/api/admin/requests/${id}`);
       if (res.ok) {
         const data = await res.json();
         setRequestDetail(data.request);
@@ -182,7 +343,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/approve`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/approve`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -201,7 +362,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/reject`, {
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rejectionReason: rejectionReasonText })
@@ -225,7 +386,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/schedule-pickup`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/schedule-pickup`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -244,7 +405,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/mark-received`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/mark-received`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -263,7 +424,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/process-refund`, {
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/process-refund`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ method: requestDetail?.refundMethod || 'ORIGINAL_PAYMENT' })
@@ -286,7 +447,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/create-replacement`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/create-replacement`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -305,7 +466,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/close`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/close`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -324,7 +485,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/retry-pickup`, { method: 'POST' });
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/retry-pickup`, { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -344,7 +505,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setActionSuccess(null);
 
     try {
-      const res = await fetch(`/api/admin/requests/${selectedRequestId}/tracking`, {
+      const res = await authFetch(`/api/admin/requests/${selectedRequestId}/tracking`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -372,7 +533,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleSaveInternalNote = async () => {
     if (!selectedRequestId) return;
     try {
-      await fetch(`/api/admin/requests/${selectedRequestId}/notes`, {
+      await authFetch(`/api/admin/requests/${selectedRequestId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: internalNoteText })
@@ -405,17 +566,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  // If not logged in: Minimal monochrome login screen
-  if (!isAdminLoggedIn) {
+  // 1. Session Checking Screen
+  if (authStatus === 'CHECKING') {
+    return (
+      <div className="max-w-md mx-auto px-4 py-28 text-center space-y-4">
+        <span className="font-serif text-2xl font-bold tracking-[0.25em] text-[#111111] uppercase block">
+          ETHNOIR
+        </span>
+        <div className="flex items-center justify-center space-x-2 text-xs uppercase tracking-[0.16em] text-[#5F5F5F]">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          <span>Verifying administrative session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Access Denied Screen (Unauthorized user or inactive role)
+  if (authStatus === 'ACCESS_DENIED') {
     return (
       <div className="max-w-md mx-auto px-4 py-20 text-left">
-        <div className="border border-[#E6E6E6] p-8 sm:p-10 space-y-8 bg-white rounded-sm">
+        <div className="border border-[#111111] p-8 sm:p-10 space-y-6 bg-white rounded-sm shadow-sm">
+          <div className="flex items-center space-x-3 text-[#111111]">
+            <ShieldAlert className="w-6 h-6 flex-shrink-0" />
+            <h2 className="font-serif text-xl font-medium">Access Restricted</h2>
+          </div>
+          <p className="text-xs text-[#5F5F5F] leading-relaxed">
+            {deniedReason || 'Your authenticated account does not possess administrator privileges for ETHNOIR. Management console access is restricted to authorized store operators.'}
+          </p>
+          <div className="pt-2">
+            <button
+              onClick={handleLogout}
+              className="w-full ethnoir-btn-primary flex items-center justify-center space-x-2 text-xs py-2.5"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Supabase Auth Login Screen
+  if (authStatus === 'LOGIN' || !isAdminLoggedIn) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-left">
+        <div className="border border-[#E6E6E6] p-8 sm:p-10 space-y-8 bg-white rounded-sm shadow-sm">
           <div className="space-y-2 text-center">
-            <span className="font-serif text-2xl font-bold tracking-[0.2em] text-[#111111] uppercase block">
+            <span className="font-serif text-2xl font-bold tracking-[0.25em] text-[#111111] uppercase block">
               ETHNOIR
             </span>
-            <span className="text-[10px] tracking-[0.2em] uppercase text-[#5F5F5F] block">
-              Private Merchant Gateway
+            <span className="text-[10px] tracking-[0.2em] uppercase text-[#5F5F5F] block font-medium">
+              Management Console
             </span>
           </div>
 
@@ -429,7 +631,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 value={loginEmail}
                 onChange={e => setLoginEmail(e.target.value)}
                 className="w-full ethnoir-input text-xs"
+                placeholder="name@ethnoir.in"
                 required
+                autoComplete="email"
               />
             </div>
 
@@ -443,28 +647,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 onChange={e => setLoginPassword(e.target.value)}
                 className="w-full ethnoir-input text-xs"
                 required
+                autoComplete="current-password"
               />
             </div>
 
             {loginError && (
-              <p className="text-xs text-[#111111] p-3 border border-[#111111] bg-[#FAFAFA]">
-                {loginError}
-              </p>
+              <div className="text-xs text-[#111111] p-3 border border-[#111111] bg-[#FAFAFA] flex items-center space-x-2">
+                <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+                <span>{loginError}</span>
+              </div>
             )}
 
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full ethnoir-btn-primary"
+              className="w-full ethnoir-btn-primary flex items-center justify-center space-x-2"
             >
-              {isLoggingIn ? 'Authenticating...' : 'Sign In'}
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Authenticating...</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Sign In</span>
+                </>
+              )}
             </button>
-
-            <div className="pt-4 border-t border-[#E6E6E6] text-[11px] text-[#8E8E8E] space-y-1">
-              <span className="font-semibold text-[#111111] block">Default Admin Credentials:</span>
-              <p>Email: <code className="text-[#111111]">admin@ethnoirindia.com</code></p>
-              <p>Password: <code className="text-[#111111]">Admin@Ethnoir2026!</code></p>
-            </div>
           </form>
         </div>
       </div>
@@ -482,6 +692,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <h1 className="font-serif text-3xl font-medium text-[#111111] tracking-tight mt-1">
             Returns &amp; Replacements
           </h1>
+          {currentUser && (
+            <p className="text-[11px] text-[#5F5F5F] mt-1 font-mono">
+              {currentUser.email} • <span className="uppercase font-sans font-semibold text-[#111111]">{currentUser.role}</span>
+            </p>
+          )}
         </div>
 
         <div className="flex items-center space-x-3">
