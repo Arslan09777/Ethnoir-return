@@ -88,19 +88,13 @@ export class ShopifyService {
   /**
    * Retrieves active Shopify Admin Access Token, auto-refreshing via client_credentials if needed
    */
-  async getAccessToken(): Promise<string> {
-    // 1. Direct environment variable access token if provided
-    if (config.SHOPIFY_ADMIN_ACCESS_TOKEN && config.SHOPIFY_ADMIN_ACCESS_TOKEN.startsWith('shpat_')) {
-      return config.SHOPIFY_ADMIN_ACCESS_TOKEN;
-    }
-
-    // 2. Return cached token if still valid
+  async getAccessToken(forceRefresh = false): Promise<string> {
     const now = Date.now();
-    if (this.cachedToken && this.tokenExpiry && now < this.tokenExpiry) {
+    if (!forceRefresh && this.cachedToken && this.tokenExpiry && now < this.tokenExpiry) {
       return this.cachedToken;
     }
 
-    // 3. Exchange client_id and client_secret for access token via client_credentials grant
+    // 1. Prioritize Client Credentials Grant if client ID & Secret configured (dynamic & self-refreshing)
     if (config.SHOPIFY_CLIENT_ID && config.SHOPIFY_CLIENT_SECRET) {
       try {
         const tokenRes = await axios.post<{ access_token: string; expires_in?: number }>(
@@ -123,18 +117,23 @@ export class ShopifyService {
       }
     }
 
+    // 2. Direct environment variable access token if provided
+    if (config.SHOPIFY_ADMIN_ACCESS_TOKEN && config.SHOPIFY_ADMIN_ACCESS_TOKEN.startsWith('shpat_')) {
+      return config.SHOPIFY_ADMIN_ACCESS_TOKEN;
+    }
+
     throw new Error('SHOPIFY_NOT_CONFIGURED: Missing valid Shopify Admin Access Token or Client credentials.');
   }
 
   /**
    * Executes a GraphQL query or mutation against Shopify Admin API
    */
-  async graphql<T = any>(query: string, variables: Record<string, any> = {}): Promise<T> {
+  async graphql<T = any>(query: string, variables: Record<string, any> = {}, retryCount = 0): Promise<T> {
     if (!config.isShopifyConfigured()) {
       throw new Error('SHOPIFY_NOT_CONFIGURED: Shopify Admin Access Token is not configured in .env');
     }
 
-    const token = await this.getAccessToken();
+    const token = await this.getAccessToken(retryCount > 0);
 
     try {
       const response = await axios.post<{ data: T; errors?: any[] }>(
@@ -156,6 +155,12 @@ export class ShopifyService {
 
       return response.data.data;
     } catch (err: any) {
+      if (err.response?.status === 401 && retryCount === 0) {
+        console.warn('[Shopify GraphQL] 401 Unauthorized encountered. Forcing token refresh and retrying...');
+        this.cachedToken = null;
+        this.tokenExpiry = null;
+        return this.graphql<T>(query, variables, 1);
+      }
       if (err.response?.data?.errors) {
         const details = JSON.stringify(err.response.data.errors);
         throw new Error(`Shopify API Error (${err.response.status}): ${details}`);
