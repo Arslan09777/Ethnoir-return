@@ -172,18 +172,22 @@ async function bootstrap() {
 
     // Start listening
     const port = config.PORT;
-    app.listen(port, () => {
-      console.log(`\n======================================================`);
-      console.log(`🚀 ETHNOIR Return & Replacement Server running on :${port}`);
-      console.log(`🏪 Store: ${config.SHOPIFY_SHOP}`);
-      console.log(`🔐 Admin Auth: Supabase Auth (Active)`);
-      console.log(`======================================================\n`);
-    });
+    if (!process.env.VERCEL) {
+      app.listen(port, () => {
+        console.log(`\n======================================================`);
+        console.log(`🚀 ETHNOIR Return & Replacement Server running on :${port}`);
+        console.log(`🏪 Store: ${config.SHOPIFY_SHOP}`);
+        console.log(`🔐 Admin Auth: Supabase Auth (Active)`);
+        console.log(`======================================================\n`);
+      });
+    }
   } catch (err: any) {
     console.error('[Bootstrap Error]:', err);
   }
 }
 
-bootstrap();
+if (!process.env.VERCEL) {
+  bootstrap();
+}
 
 export default app;
