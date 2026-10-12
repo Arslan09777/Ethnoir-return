@@ -312,9 +312,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     if (isAdminLoggedIn) {
+      fetchStats();
       fetchRequests();
     }
   }, [statusFilter, typeFilter, isAdminLoggedIn]);
+
+  // Periodic auto-refresh every 10 seconds so new return requests appear in real-time
+  useEffect(() => {
+    if (!isAdminLoggedIn) return;
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchRequests();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isAdminLoggedIn, statusFilter, typeFilter]);
 
   const openDetail = async (id: string) => {
     setSelectedRequestId(id);
@@ -700,6 +711,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            onClick={() => { fetchStats(); fetchRequests(); }}
+            disabled={isLoading}
+            className="ethnoir-btn-secondary uppercase text-[10px] tracking-wider flex items-center space-x-1.5"
+            title="Refresh records"
+          >
+            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
           <button
             onClick={onOpenSettings}
             className="ethnoir-btn-secondary uppercase text-[10px] tracking-wider"
