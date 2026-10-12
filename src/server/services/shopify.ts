@@ -41,6 +41,8 @@ export interface ShopifyOrderDetails {
   displayFulfillmentStatus: string;
   createdAt: string;
   currencyCode: string;
+  email?: string;
+  phone?: string;
   totalPriceSet: {
     shopMoney: {
       amount: string;
@@ -48,7 +50,7 @@ export interface ShopifyOrderDetails {
     };
   };
   customer?: {
-    id: string;
+    id?: string;
     email?: string;
     phone?: string;
     firstName?: string;
@@ -195,13 +197,8 @@ export class ShopifyService {
                   currencyCode
                 }
               }
-              customer {
-                id
-                email
-                phone
-                firstName
-                lastName
-              }
+              email
+              phone
               shippingAddress {
                 name
                 address1
@@ -274,8 +271,8 @@ export class ShopifyService {
           if (!numberMatch) return false;
 
           // Verify email or phone
-          const custEmail = (order.customer?.email || '').trim().toLowerCase();
-          const custPhone = (order.customer?.phone || order.shippingAddress?.phone || '').replace(/[^0-9]/g, '');
+          const custEmail = (order.email || order.customer?.email || '').trim().toLowerCase();
+          const custPhone = (order.phone || order.customer?.phone || order.shippingAddress?.phone || '').replace(/[^0-9]/g, '');
 
           const emailMatch = cleanContact.includes('@') && custEmail === cleanContact;
 

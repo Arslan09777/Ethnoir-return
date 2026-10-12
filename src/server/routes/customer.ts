@@ -127,24 +127,28 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
       : (shopifyOrder.fulfillments?.[0]?.createdAt ? new Date(shopifyOrder.fulfillments[0].createdAt) : null);
 
     if (!dbOrder) {
+      const resolvedEmail = shopifyOrder.email || shopifyOrder.customer?.email;
+      const resolvedPhone = shopifyOrder.phone || shopifyOrder.customer?.phone || shopifyOrder.shippingAddress?.phone;
+      const resolvedName = shopifyOrder.shippingAddress?.name || (shopifyOrder.customer ? `${shopifyOrder.customer.firstName || ''} ${shopifyOrder.customer.lastName || ''}`.trim() : 'Customer');
+
       // Find or create customer
       let customer = await prisma.customer.findFirst({
         where: {
           OR: [
-            { email: shopifyOrder.customer?.email || undefined },
-            { phone: shopifyOrder.customer?.phone || shopifyOrder.shippingAddress?.phone || undefined }
+            { email: resolvedEmail || undefined },
+            { phone: resolvedPhone || undefined }
           ]
         }
       });
 
-      if (!customer && (shopifyOrder.customer?.email || shopifyOrder.customer?.phone || shopifyOrder.shippingAddress?.phone)) {
+      if (!customer && (resolvedEmail || resolvedPhone)) {
         customer = await prisma.customer.create({
           data: {
             shopifyId: shopifyOrder.customer?.id,
-            email: shopifyOrder.customer?.email,
-            phone: shopifyOrder.customer?.phone || shopifyOrder.shippingAddress?.phone,
-            firstName: shopifyOrder.customer?.firstName,
-            lastName: shopifyOrder.customer?.lastName
+            email: resolvedEmail,
+            phone: resolvedPhone,
+            firstName: shopifyOrder.customer?.firstName || resolvedName.split(' ')[0],
+            lastName: shopifyOrder.customer?.lastName || resolvedName.split(' ').slice(1).join(' ')
           }
         });
       }
@@ -155,8 +159,8 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
           orderNumber: orderNumberSaved,
           storeId: store.id,
           customerId: customer?.id,
-          customerEmail: shopifyOrder.customer?.email,
-          customerPhone: shopifyOrder.customer?.phone || shopifyOrder.shippingAddress?.phone,
+          customerEmail: resolvedEmail,
+          customerPhone: resolvedPhone,
           fulfillmentStatus: shopifyOrder.displayFulfillmentStatus,
           deliveryDate,
           totalPrice: parseFloat(shopifyOrder.totalPriceSet?.shopMoney?.amount || '0'),
@@ -253,9 +257,9 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
         totalPrice: dbOrder.totalPrice,
         currency: dbOrder.currency,
         customer: {
-          name: shopifyOrder.customer ? `${shopifyOrder.customer.firstName || ''} ${shopifyOrder.customer.lastName || ''}`.trim() : 'Customer',
-          email: dbOrder.customerEmail,
-          phone: dbOrder.customerPhone,
+          name: shopifyOrder.shippingAddress?.name || (shopifyOrder.customer ? `${shopifyOrder.customer.firstName || ''} ${shopifyOrder.customer.lastName || ''}`.trim() : 'Customer'),
+          email: dbOrder.customerEmail || shopifyOrder.email,
+          phone: dbOrder.customerPhone || shopifyOrder.phone,
         },
         shippingAddress: JSON.parse(dbOrder.shippingAddressJson || '{}'),
         items: itemsWithVariants,
