@@ -36,7 +36,8 @@ app.use(helmet({
 const allowedOrigins = [
   'https://ethnoir.in',
   'https://www.ethnoir.in',
-  config.APP_URL
+  config.APP_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null
 ].filter(Boolean);
 
 app.use(cors({
@@ -49,6 +50,16 @@ app.use(cors({
       if (/^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
         return callback(null, true);
       }
+    }
+
+    // Allow Vercel preview/production domains and Render domains
+    try {
+      const { hostname } = new URL(origin);
+      if (hostname.endsWith('.vercel.app') || hostname.endsWith('.onrender.com')) {
+        return callback(null, true);
+      }
+    } catch {
+      // ignore url parse failure
     }
 
     if (allowedOrigins.includes(origin)) {
