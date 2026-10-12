@@ -280,8 +280,8 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
     });
   } catch (err: any) {
     console.error('[Customer Order Lookup Error]:', err);
-    let errorMessage = err?.message || 'Failed to look up order. Please try again.';
-    return res.status(500).json({ error: 'SERVER_ERROR', message: errorMessage, details: err?.stack?.slice(0, 300) });
+    const message = err?.message || 'Failed to look up order. Please try again.';
+    return res.status(500).json({ error: 'SERVER_ERROR', message });
   }
 });
 
