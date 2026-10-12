@@ -276,7 +276,13 @@ router.post('/orders/lookup', orderLookupLimiter, async (req: Request, res: Resp
     });
   } catch (err: any) {
     console.error('[Customer Order Lookup Error]:', err);
-    return res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to look up order. Please try again.' });
+    let errorMessage = 'Failed to look up order. Please try again.';
+    if (err?.message?.includes('SHOPIFY_NOT_CONFIGURED')) {
+      errorMessage = 'Shopify is not configured. Please set SHOPIFY_ADMIN_ACCESS_TOKEN in environment variables.';
+    } else if (err?.message?.includes('Shopify GraphQL Error')) {
+      errorMessage = `Shopify API Error: ${err.message}`;
+    }
+    return res.status(500).json({ error: 'SERVER_ERROR', message: errorMessage });
   }
 });
 
